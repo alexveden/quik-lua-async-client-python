@@ -49,6 +49,9 @@ class QuikLuaClientBase:
         """
         self._lock_rpc = asyncio.Semaphore(self.n_simultaneous_sockets)
 
+        # Send a heartbeat to test the RPC connection!
+        await self.heartbeat()
+
     async def shutdown(self):
         """
         Shutdowns Quik Lua Socket connection and unsubscribes the data
