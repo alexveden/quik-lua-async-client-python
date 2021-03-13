@@ -85,7 +85,7 @@ if __name__ == '__main__':
 ```
 
 ## Производительность
-См. [benchmark.py](benchmark.py) в корне репозитория
+См. [benchmark.py](https://github.com/alexveden/quik-lua-async-client-python/blob/master/benchmarks.py) в корне репозитория
 
 В целом вот примерно что у меня получается:
 1. `await self.heartbeat()` занимает 1.4мс синхронно, и 0.8мс асинхронно на запрос
