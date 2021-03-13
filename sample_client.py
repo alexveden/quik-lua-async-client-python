@@ -53,5 +53,11 @@ class QuikLuaClientSample(QuikLuaClientBase):
 
 
 if __name__ == '__main__':
-    qclient = QuikLuaClientSample("tcp://localhost:5560", None)
+    qclient = QuikLuaClientSample("tcp://localhost:5560",               # RPC сокет
+                                  None,                                 # PUB сокет
+                                  socket_timeout=100,                   # Таймаут сокета после которого он выдает ошибку (в миллисекундах)
+                                  n_simultaneous_sockets=5,             # Количество одновременно открытых сокетов
+                                  history_backfill_interval_sec=10,     # Таймаут на ожидание истории (в секундах) (обычно занимает менее 1 сек)
+                                  cache_min_update_sec=0.2,             # Время актуальности истории котировок к кеше, после последнего обновления
+                                  )
     asyncio.run(qclient.main())
