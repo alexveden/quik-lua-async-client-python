@@ -105,3 +105,36 @@ if __name__ == '__main__':
 и используйте на свой страх и риск. Сам настроен использовать этого клиента в продакшене.
 
 Версия: ранняя альфа 0.0.0.1, в разработке.
+
+### Quik Lua Config
+Вот как выглядит файл конфига `.../QUIK/lua/quik-lua-rpc/config.json`
+```json
+  {
+    "endpoints": [{
+        "type": "RPC", 
+	    "serde_protocol": "json",
+        "active": true, 
+        "address": {
+            "host": "127.0.0.1",
+            "port": 5560
+        },
+
+        "auth": {
+            "mechanism": "NULL",
+        }
+    }, 
+
+    {
+        "type": "PUB", 
+    	"serde_protocol": "json",
+        "active": true, 
+        "address": {
+            "host": "127.0.0.1",
+            "port": 5561
+        },
+        "auth": {
+            "mechanism": "NULL", 
+        }
+    }]
+}
+```
