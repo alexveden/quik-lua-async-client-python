@@ -111,8 +111,8 @@ if __name__ == '__main__':
 ```json
   {
     "endpoints": [{
-        "type": "RPC", 
-	    "serde_protocol": "json",
+        "type": "RPC",
+        "serde_protocol": "json",
         "active": true, 
         "address": {
             "host": "127.0.0.1",
