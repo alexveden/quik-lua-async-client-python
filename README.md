@@ -17,8 +17,11 @@
   виртуальной машине.
 
 ## Как использовать
-Просто создайте новый класс и запустите его `main()` в `asyncio.run()`
+Есть 2 варианта:
+- Создаем класс-приложение на основе `QuikLuaClientBase` [sample_client.py](https://github.com/alexveden/quik-lua-async-client-python/blob/master/sample_client.py)
+- Создаем асинхронную функцию main() а в ней объект `QuikLuaClientBase` [sample_asyncio_app.py](https://github.com/alexveden/quik-lua-async-client-python/blob/master/sample_asyncio_app.py)
 
+Пример sample_client.py
 ```python
 import asyncio
 from aioquiklua import QuikLuaClientBase, QuikLuaException, QuikLuaConnectionException, QuikLuaNoHistoryException
