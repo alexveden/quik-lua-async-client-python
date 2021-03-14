@@ -47,7 +47,7 @@ class QuikLuaClientBenchmarker(QuikLuaClientBase):
         await asyncio.gather(*[self.get_price_history('SPBFUT', 'RIH1', "INTERVAL_M1", use_caching=False) for i in range(n_steps)])
 
     async def main(self):
-        await super().main()
+        await self.initialize()
         n_steps = 1000
         await self.test_heartbeat_sync(n_steps)
         await self.test_heartbeat_async(n_steps)
@@ -67,4 +67,5 @@ class QuikLuaClientBenchmarker(QuikLuaClientBase):
 
 if __name__ == '__main__':
     qclient = QuikLuaClientBenchmarker("tcp://localhost:5560", None)
+    # qclient = QuikLuaClientBenchmarker("tcp://localhost:5560", "tcp://localhost:5570")
     asyncio.run(qclient.main())
