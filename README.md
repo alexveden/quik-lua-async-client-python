@@ -18,8 +18,8 @@
 
 ## Как использовать
 Есть 2 варианта:
-- Создаем класс-приложение на основе [`QuikLuaClientBase`](https://github.com/alexveden/quik-lua-async-client-python/blob/378929c980da7e4a9177980373ab2cae9fa69628/aioquiklua/client.py#L27) [sample_client.py](https://github.com/alexveden/quik-lua-async-client-python/blob/master/sample_client.py)
-- Создаем асинхронную функцию main(), а в ней объект [`QuikLuaClientBase`](https://github.com/alexveden/quik-lua-async-client-python/blob/378929c980da7e4a9177980373ab2cae9fa69628/aioquiklua/client.py#L27) [sample_asyncio_app.py](https://github.com/alexveden/quik-lua-async-client-python/blob/master/sample_asyncio_app.py)
+- Создаем класс-приложение на основе [`QuikLuaClientBase`](https://github.com/alexveden/quik-lua-async-client-python/blob/378929c980da7e4a9177980373ab2cae9fa69628/aioquiklua/client.py#L27) [examples/sample_client.py](https://github.com/alexveden/quik-lua-async-client-python/blob/75bc2aabaafcd3a28e2e4fc630bc6b5d7f8625d6/examples/sample_client.py#L9)
+- Создаем асинхронную функцию main(), а в ней объект [`QuikLuaClientBase`](https://github.com/alexveden/quik-lua-async-client-python/blob/378929c980da7e4a9177980373ab2cae9fa69628/aioquiklua/client.py#L27) [examples/sample_asyncio_app.py](https://github.com/alexveden/quik-lua-async-client-python/blob/75bc2aabaafcd3a28e2e4fc630bc6b5d7f8625d6/examples/sample_asyncio_app.py#L7)
 
 Пример sample_client.py
 ```python
@@ -93,7 +93,7 @@ if __name__ == '__main__':
 ```
 
 ## Производительность
-См. [benchmark.py](https://github.com/alexveden/quik-lua-async-client-python/blob/master/benchmarks.py) в корне репозитория
+См. [examples/benchmark.py](https://github.com/alexveden/quik-lua-async-client-python/blob/75bc2aabaafcd3a28e2e4fc630bc6b5d7f8625d6/examples/benchmarks.py#L49)
 
 В целом вот примерно что у меня получается:
 1. `await self.heartbeat()` занимает 1.4мс синхронно, и 0.8мс асинхронно на запрос
