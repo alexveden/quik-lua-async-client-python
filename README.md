@@ -18,8 +18,8 @@
 
 ## Как использовать
 Есть 2 варианта:
-- Создаем класс-приложение на основе `QuikLuaClientBase` [sample_client.py](https://github.com/alexveden/quik-lua-async-client-python/blob/master/sample_client.py)
-- Создаем асинхронную функцию main() а в ней объект `QuikLuaClientBase` [sample_asyncio_app.py](https://github.com/alexveden/quik-lua-async-client-python/blob/master/sample_asyncio_app.py)
+- Создаем класс-приложение на основе [`QuikLuaClientBase`](https://github.com/alexveden/quik-lua-async-client-python/blob/378929c980da7e4a9177980373ab2cae9fa69628/aioquiklua/client.py#L27) [sample_client.py](https://github.com/alexveden/quik-lua-async-client-python/blob/master/sample_client.py)
+- Создаем асинхронную функцию main(), а в ней объект [`QuikLuaClientBase`](https://github.com/alexveden/quik-lua-async-client-python/blob/378929c980da7e4a9177980373ab2cae9fa69628/aioquiklua/client.py#L27) [sample_asyncio_app.py](https://github.com/alexveden/quik-lua-async-client-python/blob/master/sample_asyncio_app.py)
 
 Пример sample_client.py
 ```python
