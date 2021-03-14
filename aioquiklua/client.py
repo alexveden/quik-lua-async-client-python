@@ -7,6 +7,21 @@ import asyncio
 import datetime
 import pandas as pd
 from .errors import *
+import logging
+
+
+def create_logger():
+    log = logging.getLogger('aioquiklua')
+    formatter = logging.Formatter(fmt=f'%(asctime)s [%(filename)s:%(lineno)s] %(levelname)s - %(message)s')
+    handler_console = logging.StreamHandler()
+    handler_console.setFormatter(formatter)
+    log.setLevel(logging.DEBUG)
+    log.addHandler(handler_console)
+    return log
+
+
+log = create_logger()
+"""Default 'aioquiklua' logger"""
 
 
 class QuikLuaClientBase:
@@ -17,11 +32,19 @@ class QuikLuaClientBase:
                  n_simultaneous_sockets=5,
                  history_backfill_interval_sec=10,
                  cache_min_update_sec=0.2,
+                 verbosity=0,
+                 logger=log
                  ):
         assert '127.0.0.1' in rpc_host or 'localhost' in rpc_host, f'Only localhost is allowed for RPC requests for security reasons, got {rpc_host}'
+        self.verbosity = verbosity
+        self.log = logger
 
         self.rpc_host = rpc_host
         self.pub_host = pub_host
+
+        if self.verbosity > 0:
+            self.log.debug(f'Connections params: RPC: {self.rpc_host} PUB: {self.pub_host}')
+
         self.zmq_context = zmq.asyncio.Context()
         self.socket_timeout = socket_timeout
 
@@ -39,6 +62,20 @@ class QuikLuaClientBase:
         self._quote_cache: Dict[Tuple[str, str, str], HistoryCache] = {}
         self._quote_cache_min_update_sec = cache_min_update_sec
 
+        if self.verbosity > 1:
+            self.log.debug(f'Quik client parameters:\n'
+                           f'RPC Host: {self.rpc_host}\n'
+                           f'PUB Host: {self.pub_host}\n'
+                           f'SocketTimeout: {self.socket_timeout}\n'
+                           f'History Backfill Min Interval: {self.history_backfill_interval_sec}\n'
+                           f'N simultaneous sockets: {self.n_simultaneous_sockets}\n'
+                           f'Quote Cache Min Update sec: {self._quote_cache_min_update_sec}\n')
+
+    async def initialize(self):
+        if self.verbosity > 1:
+            self.log.debug(f'Initializing Quik LUA Client')
+        self._lock_rpc = asyncio.Semaphore(self.n_simultaneous_sockets)
+
     async def main(self):
         """
         Main client entry point, also does some low level initialization of the client app.
@@ -47,8 +84,6 @@ class QuikLuaClientBase:
 
         :return:
         """
-        self._lock_rpc = asyncio.Semaphore(self.n_simultaneous_sockets)
-
         # Send a heartbeat to test the RPC connection!
         await self.heartbeat()
 
@@ -64,10 +99,13 @@ class QuikLuaClientBase:
         # Free existing Quik Datasources
         #
         if self._quote_cache:
-            print('Cleanup quik history caches')
+            if self.verbosity > 0:
+                self.log.debug('Cleanup quik history caches')
+
             for key, cache in self._quote_cache.items():
                 if cache.ds_uuid:
-                    print(f'datasource.Close: {key} {cache.ds_uuid}')
+                    if self.verbosity > 1:
+                        self.log.debug(f'datasource.Close: {key} {cache.ds_uuid}')
                     await self.rpc_call("datasource.Close", datasource_uuid=cache.ds_uuid)
 
         self.zmq_context.destroy()
@@ -78,9 +116,11 @@ class QuikLuaClientBase:
 
         :return: LUA Func getInfoParam('LASTRECORDTIME') or raises QuikLuaConnectionException() if socket disconnected
         """
+        if self.verbosity > 1:
+            self.log.debug('Heartbeat call sent')
         return await self.rpc_call('getInfoParam', param_name='LASTRECORDTIME')
 
-    async def get_price_history(self, class_code: str, sec_code: str, interval: str, use_caching=True) -> pd.DataFrame:
+    async def get_price_history(self, class_code: str, sec_code: str, interval: str, use_caching=True, copy=True) -> pd.DataFrame:
         """
         Retrieve price history from Quik server, and use cache if applicable
 
@@ -95,11 +135,12 @@ class QuikLuaClientBase:
             'INTERVAL_W1' - weekly
             'INTERVAL_MN1' - monthly
         :param use_caching: use in-memory cache and update only most recent data since last historical request
+        :param copy: returns a copy of a data cache
         :exception: QuikLuaNoHistoryException - if no history found or backfill is too long (see self.history_backfill_interval_sec param)
         :return: pd.DataFrame(['o', 'h', 'l', 'c', 'v']) with DateTime Index (TZ in Moscow time, but tz-naive)
         """
         if self._lock_rpc is None:
-            raise RuntimeError(f'Not initialized properly, you must call super().main() to setup QuikLuaClientBase')
+            raise RuntimeError(f'Not initialized properly, you must call self.initialize() to setup QuikLuaClientBase')
 
         # self._lock_rpc: Do not allow creation of more than self.n_simultaneous_sockets
         async with self._lock_rpc:
@@ -124,7 +165,12 @@ class QuikLuaClientBase:
                     # Allow only one cache update for (class_code, sec_code, interval) combination
                     if not cache.can_update:
                         # Cache update is too frequent, use in-memory data
-                        return cache.data
+                        if self.verbosity > 1:
+                            self.log.debug(f'Quote cache hit for {(class_code, sec_code, interval)}')
+                        if copy:
+                            return cache.data.copy()
+                        else:
+                            return cache.data
 
                     if cache.ds_uuid is None:
                         # Cache is not initialized, create a new DataSource in Quik
@@ -134,6 +180,8 @@ class QuikLuaClientBase:
 
                         ds_uuid = response['datasource_uuid']
                         cache.ds_uuid = ds_uuid
+                        if self.verbosity > 1:
+                            self.log.debug(f'Created DataSource: {(class_code, sec_code, interval)} uuid: {ds_uuid}')
                     else:
                         # re-using Quik uuid from datasource.CreateDataSource with the same (class_code, sec_code, interval) combination
                         ds_uuid = cache.ds_uuid
@@ -158,10 +206,11 @@ class QuikLuaClientBase:
                             break
                         n_tries += 1
                     bar_count = response_size['value']
-                    #print(f'Got the data after: {time.time() - time_begin:0.2f}sec')
+                    if self.verbosity > 2:
+                        self.log.debug(f'Got the initial data after: {time.time() - time_begin:0.2f}sec ({(class_code, sec_code, interval)})')
 
                     result = []
-
+                    time_begin = time.time()
                     last_bar_date = cache.last_bar_date
                     for i in range(bar_count, 0, -1):
                         candle_open = (await self._socket_send_receive_json(_socket, "datasource.O", datasource_uuid=ds_uuid, candle_index=i))['value']
@@ -178,11 +227,11 @@ class QuikLuaClientBase:
 
                         result.append({
                             'dt': bar_date,
-                            'o': candle_open,
-                            'h': candle_high,
-                            'l': candle_low,
-                            'c': candle_close,
-                            'v': candle_vol,
+                            'o': float(candle_open),
+                            'h': float(candle_high),
+                            'l': float(candle_low),
+                            'c': float(candle_close),
+                            'v': float(candle_vol),
                         })
 
                     if not use_caching:
@@ -191,11 +240,18 @@ class QuikLuaClientBase:
 
                     # Update history cache if applicable
                     quotes_df = pd.DataFrame(result).set_index('dt').sort_index()
-                    print(f'{sec_code} {len(quotes_df)} bars updated in cache')
+                    if self.verbosity > 1:
+                        self.log.debug(f'{sec_code} {len(quotes_df)} bars updated in cache')
                     cache.process_history(quotes_df)
 
+                    if self.verbosity > 2:
+                        self.log.debug(f'Historical quotes processed in {time.time() - time_begin:0.2f}sec ({(class_code, sec_code, interval)})')
+
                     # Return full history from cache
-                    return cache.data
+                    if copy:
+                        return cache.data.copy()
+                    else:
+                        return cache.data
 
             except zmq.ZMQError as exc:
                 raise QuikLuaConnectionException(repr(exc))
@@ -219,7 +275,7 @@ class QuikLuaClientBase:
         _send_result = await socket.send_json(req)
         response = await socket.recv_json()
 
-        if 'result' in response:
+        if 'result' in response and not response['result'].get('is_error'):
             return response['result']
         else:
             raise QuikLuaException(f"{rpc_func} error: {response.get('error', response)}")
@@ -240,7 +296,7 @@ class QuikLuaClientBase:
         :return: dict with result
         """
         if self._lock_rpc is None:
-            raise RuntimeError(f'Not initialized properly, you must call super().main() to setup QuikLuaClientBase')
+            raise RuntimeError(f'Not initialized properly, you must call self.initialize() to setup QuikLuaClientBase')
 
         # self._lock_rpc: Do not allow creation of more than self.n_simultaneous_sockets
         async with self._lock_rpc:
@@ -250,7 +306,13 @@ class QuikLuaClientBase:
                 _socket.setsockopt(zmq.LINGER, 1000)                    # Free socket at socket.close timeout
                 _socket.connect(self.rpc_host)
 
-                return await self._socket_send_receive_json(_socket, rpc_func, **rpc_args)
+                rpc_result = await self._socket_send_receive_json(_socket, rpc_func, **rpc_args)
+                if self.verbosity == 1:
+                    self.log.debug(f'rpc_call: {rpc_func}({rpc_args})')
+                elif self.verbosity > 1:
+                    self.log.debug(f'rpc_call: {rpc_func}({rpc_args}) -> {rpc_result}')
+
+                return rpc_result
             except zmq.ZMQError as exc:
                 raise QuikLuaConnectionException(repr(exc))
             finally:

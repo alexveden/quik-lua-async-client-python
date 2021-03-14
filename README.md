@@ -25,11 +25,12 @@ from aioquiklua import QuikLuaClientBase, QuikLuaException, QuikLuaConnectionExc
 import traceback
 import time
 
+
 class QuikLuaClientSample(QuikLuaClientBase):
 
     async def main(self):
-        # Вызываем main() основного класса для инициализации внутренних переменных
-        await super().main()
+        # Вызываем initialize() основного класса для инициализации внутренних переменных
+        await super().initialize()
 
         try:
             # Тут вызываем логику модели, подписываемся на события и т.п.
@@ -42,7 +43,7 @@ class QuikLuaClientSample(QuikLuaClientBase):
             print('RPC: message')
             print(rpc_result)
 
-            # Заказываем историю котировок (первый запуск может занимать до 10 секунд), потом котировки заполняют кеш и
+            # Заказываем историю котировок (первый запуск можен занимать до 10 секунд), потом котировки заполняют кеш и
             # обновляются только последние данные
             time_begin = time.time()
             print(f'RPC: price history')
@@ -56,11 +57,12 @@ class QuikLuaClientSample(QuikLuaClientBase):
             print(quotes_df.tail(5))
             print(f'Price backfill took {time.time() - time_begin}sec')
 
+            print(f'Press ctrl+c to stop')
             while True:
                 # Нажмите ctrl+c чтобы завершить
                 # Получаем heartbeat(), он возвращает результат RPC getInfoParam('LASTRECORDTIME')
                 await self.heartbeat()
-                await asyncio.sleep(1)
+                await asyncio.sleep(10)
         except asyncio.CancelledError:
             # AsyncIO valid stop
             raise
@@ -80,8 +82,11 @@ if __name__ == '__main__':
                                   n_simultaneous_sockets=5,             # Количество одновременно открытых сокетов
                                   history_backfill_interval_sec=10,     # Таймаут на ожидание истории (в секундах) (обычно занимает менее 1 сек)
                                   cache_min_update_sec=0.2,             # Время актуальности истории котировок к кеше, после последнего обновления
+                                  verbosity=2,                          # Включаем  debugging information (чем выше значение тем больше идет в лог)
+                                  # logger=logging.getLogger('testlog') # Можно задать кастомный логгер
                                   )
     asyncio.run(qclient.main())
+
 ```
 
 ## Производительность
