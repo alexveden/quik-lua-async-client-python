@@ -66,6 +66,7 @@ class QuikLuaClientBase:
 
         self._params_cache: Dict[Tuple[str, str], ParamCache] = {}
         self._params_watcher = ParamWatcher()
+        self._aio_background_tasks = []
 
         if self.verbosity > 1:
             self.log.debug(f'Quik client parameters:\n'
@@ -279,7 +280,7 @@ class QuikLuaClientBase:
                 _socket.setsockopt(zmq.RCVTIMEO, self.socket_timeout)   # Make raising exceptions when receiving socket timeout or not exists
                 _socket.setsockopt(zmq.LINGER, 1000)                    # Free socket at socket.close timeout
                 _socket.connect(self.data_host)
-                if self.verbosity > 0:
+                if self.verbosity > 1:
                     self.log.debug(f'params_subscribe({class_code}, {sec_code}, {params_list})')
 
                 # Request params
@@ -340,7 +341,7 @@ class QuikLuaClientBase:
                 _socket.setsockopt(zmq.LINGER, 1000)                    # Free socket at socket.close timeout
                 _socket.connect(self.data_host)
 
-                if self.verbosity > 0:
+                if self.verbosity > 1:
                     self.log.debug(f'params_unsubscribe({class_code}, {sec_code})')
 
                 # Request params
@@ -366,6 +367,10 @@ class QuikLuaClientBase:
             _socket = None
             await asyncio.sleep(0.1)
             b_time = time.time()
+
+            if self._is_shutting_down:
+                # Close task
+                raise asyncio.CancelledError()
 
             try:
                 async with self._params_watcher.lock:
@@ -424,11 +429,15 @@ class QuikLuaClientBase:
             raise asyncio.CancelledError()
         if self.verbosity > 1:
             self.log.debug(f'Initializing Quik LUA Client')
+        if self._lock_rpc is not None:
+            raise RuntimeError(f'Initialize must be called only once!')
 
         self._lock_rpc = asyncio.Semaphore(self.n_simultaneous_sockets)
         self._lock_data = asyncio.Semaphore(self.n_simultaneous_sockets)
 
-        asyncio.create_task(self._params_watch_task())
+        # Make params update task run in background
+        # IMPORTANT: it may raise exceptions, but you must call self.heartbeat() function to check its status
+        self._aio_background_tasks.append(asyncio.create_task(self._params_watch_task()))
 
     async def main(self):
         """
@@ -484,12 +493,29 @@ class QuikLuaClientBase:
         """
         Checks LUA socket connection and last Quik record time
 
+        Also checks health status of all client background tasks like params update routines.
+
         :return: LUA Func getInfoParam('LASTRECORDTIME') or raises QuikLuaConnectionException() if socket disconnected
         """
         if self._is_shutting_down:
             raise asyncio.CancelledError()
         if self.verbosity > 1:
             self.log.debug('Heartbeat call sent')
+
+        if self._lock_rpc is None:
+            raise RuntimeError(f'Client not initialized properly, you must call self.initialize() first')
+
+        #
+        # Check background tasks if they raised any unhandled exceptions, then re-raise
+        #
+        for task_future in self._aio_background_tasks:
+            try:
+                watcher_exc = task_future.exception()
+                if isinstance(watcher_exc, Exception):
+                    raise task_future.exception()
+            except asyncio.InvalidStateError:
+                # All good, task is running
+                pass
 
         return await self.rpc_call('getInfoParam', param_name='LASTRECORDTIME')
 

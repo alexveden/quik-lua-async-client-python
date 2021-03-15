@@ -45,8 +45,10 @@ class ParamWatcher:
         return self._watched[last_upd < dt_now]
 
     def set_candidate_updates(self, candidates):
+        if len(self._watched) == 0:
+            return
         dt_now = datetime.datetime.now().timestamp()
-        self._watched['dt'].loc[candidates.index] = dt_now
+        self._watched.loc[candidates.index, 'dt'] = dt_now
 
 
 class ParamCache:
@@ -98,7 +100,12 @@ class ParamCache:
             # Time
             if res['result'] == '1' and res['param_image']:
                 # Request was successful
-                self.params[key] = datetime.time.fromisoformat(res['param_image'])
+                t_str = res['param_image']
+
+                if ':' not in t_str:
+                    raise QuikLuaException(f'Unknown param time format {key}: {t_str}')
+                t_tok = t_str.split(':')
+                self.params[key] = datetime.time(int(t_tok[0]), int(t_tok[1]), int(t_tok[2]))
             else:
                 self.params[key] = None
         elif res['param_type'] == '6':

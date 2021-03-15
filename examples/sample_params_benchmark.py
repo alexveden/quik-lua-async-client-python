@@ -51,6 +51,10 @@ async def main():
             # Обратите внимание все ключи параметров конвертируются в lower case
             print(f"Params 'SPBFUT', 'RIH1': {params}")
 
+            # heartbeat() - также проверяет если таск обновления параметров выдал какой-нибудь exception
+            # его полезно запускать периодически но не очень часто, 5-10 секунд самое то
+            await qclient.heartbeat()
+
             await asyncio.sleep(5)
     except asyncio.CancelledError:
         # AsyncIO valid stop
