@@ -5,6 +5,7 @@ import time
 import zmq.asyncio
 import asyncio
 import datetime
+import numpy as np
 import pandas as pd
 from .errors import *
 import logging
@@ -32,6 +33,7 @@ class QuikLuaClientBase:
                  n_simultaneous_sockets=5,
                  history_backfill_interval_sec=10,
                  cache_min_update_sec=0.2,
+                 params_poll_interval_sec=0.1,
                  verbosity=0,
                  logger=log
                  ):
@@ -66,7 +68,11 @@ class QuikLuaClientBase:
 
         self._params_cache: Dict[Tuple[str, str], ParamCache] = {}
         self._params_watcher = ParamWatcher()
+        self._params_poll_interval = params_poll_interval_sec
+
+
         self._aio_background_tasks = []
+
 
         if self.verbosity > 1:
             self.log.debug(f'Quik client parameters:\n'
@@ -293,6 +299,7 @@ class QuikLuaClientBase:
                     param_ex_api_response = await self._socket_send_receive_json(_socket, 'getParamEx2', class_code=class_code, sec_code=sec_code, param_name=param)
                     cache.process_param(param, param_ex_api_response)
                     if isinstance(update_interval_sec, (list, tuple)):
+                        assert isinstance(update_interval_sec[i], (float, int, np.float, np.int)), f'update_interval_sec: Expected float got {update_interval_sec[i]}'
                         params_to_watch.append((class_code, sec_code, param, update_interval_sec[i]))
                     else:
                         params_to_watch.append((class_code, sec_code, param, float(update_interval_sec)))
@@ -365,7 +372,7 @@ class QuikLuaClientBase:
         """
         while True:
             _socket = None
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(self._params_poll_interval)
             b_time = time.time()
 
             if self._is_shutting_down:
@@ -710,9 +717,9 @@ class QuikLuaClientBase:
                 _socket.connect(self.rpc_host)
 
                 rpc_result = await self._socket_send_receive_json(_socket, rpc_func, **rpc_args)
-                if self.verbosity == 1:
+                if self.verbosity == 2:
                     self.log.debug(f'rpc_call: {rpc_func}({rpc_args})')
-                elif self.verbosity > 1:
+                elif self.verbosity > 2:
                     self.log.debug(f'rpc_call: {rpc_func}({rpc_args}) -> {rpc_result}')
 
                 return rpc_result
