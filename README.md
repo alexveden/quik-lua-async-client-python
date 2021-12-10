@@ -49,7 +49,7 @@ class QuikLuaClientSample(QuikLuaClientBase):
             print('RPC: message')
             print(rpc_result)
 
-            # Заказываем историю котировок (первый запуск можен занимать до 10 секунд), потом котировки заполняют кеш и
+            # Заказываем историю котировок (первый запуск может занимать до 10 секунд), потом котировки заполняют кеш и
             # обновляются только последние данные
             time_begin = time.time()
             print(f'RPC: price history')
@@ -87,8 +87,8 @@ if __name__ == '__main__':
                                   socket_timeout=100,                   # Таймаут сокета после которого он выдает ошибку (в миллисекундах)
                                   n_simultaneous_sockets=5,             # Количество одновременно открытых сокетов
                                   history_backfill_interval_sec=10,     # Таймаут на ожидание истории (в секундах) (обычно занимает менее 1 сек)
-                                  cache_min_update_sec=0.2,             # Время актуальности истории котировок к кеше, после последнего обновления
-                                  verbosity=2,                          # Включаем  debugging information (чем выше значение тем больше идет в лог)
+                                  cache_min_update_sec=0.2,             # Время актуальности истории котировок в кеше, после последнего обновления
+                                  verbosity=2,                          # Включаем debugging information (чем выше значение тем больше идет в лог)
                                   # logger=logging.getLogger('testlog') # Можно задать кастомный логгер
                                   )
     asyncio.run(qclient.main())
@@ -106,7 +106,7 @@ if __name__ == '__main__':
         "active": true, 
         "address": {
             "host": "127.0.0.1",
-            "port": 5580
+            "port": 5560
         },
 
         "auth": {
@@ -119,7 +119,7 @@ if __name__ == '__main__':
         "active": true, 
         "address": {
             "host": "127.0.0.1",
-            "port": 5581
+            "port": 5561
         },
 
         "auth": {
@@ -152,15 +152,15 @@ async def custom_event_handler(event_name: str, event_data: dict) -> None:
 
 async def main():
     # Вызываем initialize() основного класса для инициализации внутренних переменных
-    qclient = QuikLuaClientBase("tcp://localhost:5580",               # RPC сокет
+    qclient = QuikLuaClientBase("tcp://localhost:5560",               # RPC сокет
                                 None,                                 # DATA сокет
                                 socket_timeout=100,                   # Таймаут сокета после которого он выдает ошибку (в миллисекундах)
                                 n_simultaneous_sockets=5,             # Количество одновременно открытых сокетов
                                 history_backfill_interval_sec=10,     # Таймаут на ожидание истории (в секундах) (обычно занимает менее 1 сек)
-                                cache_min_update_sec=0.2,             # Время актуальности истории котировок к кеше, после последнего обновления
-                                verbosity=3,                          # Включаем  debugging information (чем выше значение тем больше идет в лог)
+                                cache_min_update_sec=0.2,             # Время актуальности истории котировок в кеше, после последнего обновления
+                                verbosity=3,                          # Включаем debugging information (чем выше значение тем больше идет в лог)
                                 # logger=logging.getLogger('testlog') # Можно задать кастомный логгер
-                                event_host="tcp://localhost:5581",    # PUB сокет
+                                event_host="tcp://localhost:5561",    # PUB сокет
                                 event_callback_coro=custom_event_handler,  # Event handler async coro
                                 )
     
@@ -197,7 +197,7 @@ if __name__ == '__main__':
 Я сделал все возможное, чтобы сделать работу кода максимально предсказуемой. Но, как всегда, ожидайте баги
 и используйте на свой страх и риск. 
 
-Версия: 1.01 beta, работает несколько месяцев у меня, но не 24/7. В целом стабильно, но иногда обрывы связи квика могут ронять сокетыю 
+Версия: 1.01 beta, работает несколько месяцев у меня, но не 24/7. В целом стабильно, но иногда обрывы связи квика могут ронять сокеты. 
 
 ### Quik Lua Config
 Вот как выглядит файл конфига `.../QUIK/lua/quik-lua-rpc/config.json`
@@ -226,7 +226,7 @@ if __name__ == '__main__':
             "port": 5561
         },
         "auth": {
-            "mechanism": "NULL", 
+            "mechanism": "NULL",
         }
     }]
 }
