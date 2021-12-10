@@ -1,4 +1,4 @@
-from typing import Tuple, Dict, Any, List, Union
+from typing import Tuple, Dict, Any, List, Union, Optional, Coroutine
 from .cache import HistoryCache, ParamCache, ParamWatcher
 import zmq
 import time
@@ -27,25 +27,48 @@ log = create_logger()
 
 class QuikLuaClientBase:
     def __init__(self,
-                 rpc_host,
-                 data_host=None,
-                 socket_timeout=100,
-                 n_simultaneous_sockets=5,
-                 history_backfill_interval_sec=10,
-                 cache_min_update_sec=0.2,
-                 params_poll_interval_sec=0.1,
-                 verbosity=0,
-                 logger=log
+                 rpc_host: str,
+                 data_host: str = None,
+                 socket_timeout: int = 100,
+                 n_simultaneous_sockets: int = 5,
+                 history_backfill_interval_sec: int = 10,
+                 cache_min_update_sec: float = 0.2,
+                 params_poll_interval_sec: float = 0.1,
+                 verbosity: int = 0,
+                 logger=log,
+                 event_host: Optional[str] = None,
+                 event_list: List[str] = None,
+                 event_callback_coro = None,
                  ):
+        """
+        Initializes Quik LUA RPC Async client
+
+        :param rpc_host: RPC socket, as in `config.json` of Quik Lua RPC script (example: "tcp://localhost:5580")
+        :param data_host: Alternative RPC socket, used only for data requests as in `config.json` of Quik Lua RPC script. If None it uses rpc_host value
+        :param socket_timeout: initial socket connection timeout for RPC requests
+        :param n_simultaneous_sockets: number of simultaneous socket connections for increased concurrency speed
+        :param history_backfill_interval_sec: historical bars poll intervals
+        :param cache_min_update_sec: quik current params update intervals
+        :param params_poll_interval_sec: quik current params poll intervals
+        :param verbosity: debug information level 0-silent, higher the value the more information is printed to the log
+        :param logger: logger instance
+        :param event_host: PUB socket, as in `config.json` of Quik Lua RPC script (example: "tcp://localhost:5581")
+        :param event_list: list of events to filter, by default handles all events
+        :param event_callback_coro: external coroutine function for event handling, or override on_new_event() in child class
+        """
         assert '127.0.0.1' in rpc_host or 'localhost' in rpc_host, f'Only localhost is allowed for RPC requests for security reasons, got {rpc_host}'
         self.verbosity = verbosity
         self.log = logger
 
         self.rpc_host = rpc_host
         self._data_host = data_host
+        self._event_host = event_host
+        self._event_filter = None if event_list is None else set([e.lower() for e in event_list])
+        self._event_que = None #asyncio.Queue()
+        self._event_callback_coro = event_callback_coro
 
         if self.verbosity > 0:
-            self.log.debug(f'Connections params: RPC: {self.rpc_host} DATA: {self.data_host}')
+            self.log.debug(f'Connections params: RPC: {self.rpc_host} DATA: {self.data_host} EVENT: {self._event_host}')
 
         #
         # There is some limit of simultaneous sockets that Quick Lua RPC can handle
@@ -59,6 +82,7 @@ class QuikLuaClientBase:
 
         self._lock_rpc: asyncio.Semaphore = None   # this has to be initialized in initialize()
         self._lock_data: asyncio.Semaphore = None  # this has to be initialized in initialize()
+        self._lock_event: asyncio.Lock = asyncio.Lock()
 
         #
         # Historical cache
@@ -106,7 +130,7 @@ class QuikLuaClientBase:
             else:
                 raise NotImplementedError('Unknown lock type')
 
-    async def params_subscribe(self, class_code: str, sec_code: str, update_interval_sec: Union[List[float], float], params_list: List[str]):
+    async def params_subscribe(self, class_code: str, sec_code: str, update_interval_sec: Union[List[float], float], params_list: List[str]) ->  Dict[str, Any]:
         """
         Requests Quik params subscription for unique combination of (class_code, sec_code) and initializes params cache.
 
@@ -265,8 +289,8 @@ class QuikLuaClientBase:
         if self._is_shutting_down:
             raise asyncio.CancelledError()
 
-        if (class_code, sec_code) in self._params_cache:
-            raise QuikLuaException(f'{(class_code, sec_code)} already exists in subscription cache, duplicated subscriptions are not allowed')
+        # if (class_code, sec_code) in self._params_cache:
+        #     raise QuikLuaException(f'{(class_code, sec_code)} already exists in subscription cache, duplicated subscriptions are not allowed')
 
         if not isinstance(update_interval_sec, (list, tuple, float, int)):
             raise QuikLuaException(f'{(class_code, sec_code)} update_interval_sec must be list, tuple, or float/int')
@@ -321,6 +345,8 @@ class QuikLuaClientBase:
         if params_to_watch:
             async with self._params_watcher.lock:
                 self._params_watcher.subscribed(params_to_watch)
+
+        return self._params_cache[(class_code, sec_code)].params
 
     async def params_unsubscribe(self, class_code: str, sec_code: str):
         """
@@ -403,7 +429,6 @@ class QuikLuaClientBase:
                     _socket.close()
                     _socket = None
 
-
     def params_get(self, class_code: str, sec_code: str) -> Dict[str, Any]:
         """
         Get (class_code, sec_code) that tracked by self.params_subscribe(...)
@@ -442,9 +467,14 @@ class QuikLuaClientBase:
         self._lock_rpc = asyncio.Semaphore(self.n_simultaneous_sockets)
         self._lock_data = asyncio.Semaphore(self.n_simultaneous_sockets)
 
+        # We must pass current event loop to Queue, to make it compatible with asyncio.create_task(self._events_dispatcher_task())
+        self._event_que = asyncio.Queue(loop=asyncio.get_running_loop())
+
         # Make params update task run in background
         # IMPORTANT: it may raise exceptions, but you must call self.heartbeat() function to check its status
         self._aio_background_tasks.append(asyncio.create_task(self._params_watch_task()))
+        self._aio_background_tasks.append(asyncio.create_task(self._events_watch_task()))
+        self._aio_background_tasks.append(asyncio.create_task(self._events_dispatcher_task()))
 
     async def main(self):
         """
@@ -731,3 +761,94 @@ class QuikLuaClientBase:
                     _socket.close()
                 except:
                     pass
+
+    #
+    #
+    #   Events processing
+    #
+    #
+    async def _events_watch_task(self):
+        """
+        AsyncIO task for reading event socked and queuing event handlers
+
+        :return:
+        """
+        if self._event_host is None:
+            # Event host is disabled, just skipping
+            return
+
+        if self.verbosity > 0:
+            log.debug(f'Watching events: {self._event_host}')
+
+        _socket = self.zmq_context.socket(zmq.SUB)
+        # _socket.setsockopt(zmq.RCVTIMEO, 100)  # Make raising exceptions when receiving socket timeout or not exists
+        _socket.setsockopt(zmq.LINGER, 1000)  # Free socket at socket.close timeout
+        _socket.connect(self._event_host)
+        _socket.setsockopt(zmq.SUBSCRIBE, b"")
+
+        try:
+            while True:
+                async with self._lock_event:
+                    if self._is_shutting_down:
+                        # Close task
+                        raise asyncio.CancelledError()
+
+                    response = await _socket.recv()
+
+                    if b'On' in response:
+                        # New event header
+                        event_header = response.decode()
+                        json_data = await _socket.recv_json()
+
+                        if self._event_filter is None or event_header.lower() in self._event_filter:
+                            if self.verbosity > 2:
+                                self.log.debug(f'{event_header}: {json_data}')
+
+                            self._event_que.put_nowait((event_header, datetime.datetime.now(), json_data))
+
+        except:
+            raise
+        finally:
+            if _socket:
+                _socket.close()
+                _socket = None
+
+    async def _events_dispatcher_task(self):
+        """
+        AsyncIO task for reading event socked and queuing event handlers
+
+        :return:
+        """
+        if self._event_host is None:
+            # Event host is disabled, just skipping
+            return
+
+        while True:
+            if self._is_shutting_down:
+                # Close task
+                raise asyncio.CancelledError()
+
+            try:
+                e_header, e_dt, e_data = await self._event_que.get()
+
+                if (datetime.datetime.now()-e_dt).total_seconds() > 30:
+                    log.error(f'Event processing delays > 30 sec, check client code performance')
+
+                await self.on_new_event(e_header, e_data)
+            except asyncio.CancelledError:
+                raise
+            except:
+                self.log.exception('Exception')
+
+    async def on_new_event(self, event_name: str, event_data: dict) -> None:
+        """
+        Processing event data
+
+        :param event_name: event name as in Quik Lua
+        :param event_data:
+
+        :return:
+        """
+        if self._event_callback_coro is not None:
+            await self._event_callback_coro(event_name, event_data)
+

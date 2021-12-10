@@ -7,7 +7,7 @@
 - Клиент использует JSON протокол QuikLua (который в данный момент в статусе альфа)
 - Клиент поддерживает параллельные запросы через несколько сокетов и организует SocketPool
 - Клиент пока работает только с сокетами без авторизации и только localhost (из соображений безопасности)
-- Клиент **не поддерживает** (пока решил что это фича) подписку на события, т.к. QuikLuaRPC имеет тенденцию пихать все события сразу без какой-либо фильтрации. Все это влияет на производительность в целом. Например, при открытии квика, QuikLuaRPC шлет OnParam события по всем инструментам всех рынков.
+- Клиент **поддерживает** подписку на события, но нужно изменить скрипт `main.lua` из Quik-Lua-RPC и удалить из него тяжелые события (onTrade / onParam / OnQuote), иначе скорость обработки страдает. 
 - Вместо событий клиент реализует механизмы кеширования и умного запроса данных
 - Клиент поддерживает "псевдо" подписку на обновления таблицы текущих параметров и обновление их в background с заданной пользователем периодичностью
 - Клиент поддерживает получение исторических данных и их кеширование в памяти
@@ -22,6 +22,7 @@
 Есть 2 варианта:
 - Создаем класс-приложение на основе [`QuikLuaClientBase`](https://github.com/alexveden/quik-lua-async-client-python/blob/378929c980da7e4a9177980373ab2cae9fa69628/aioquiklua/client.py#L27) [examples/sample_client.py](https://github.com/alexveden/quik-lua-async-client-python/blob/75bc2aabaafcd3a28e2e4fc630bc6b5d7f8625d6/examples/sample_client.py#L9)
 - Создаем асинхронную функцию main(), а в ней объект [`QuikLuaClientBase`](https://github.com/alexveden/quik-lua-async-client-python/blob/378929c980da7e4a9177980373ab2cae9fa69628/aioquiklua/client.py#L27) [examples/sample_asyncio_app.py](https://github.com/alexveden/quik-lua-async-client-python/blob/75bc2aabaafcd3a28e2e4fc630bc6b5d7f8625d6/examples/sample_asyncio_app.py#L7)
+- Пример обработчика событий [examples/sample_events.py](https://github.com/alexveden/quik-lua-async-client-python/blob/75bc2aabaafcd3a28e2e4fc630bc6b5d7f8625d6/examples/sample_events.py#L9)
 
 Пример sample_client.py
 ```python
@@ -94,6 +95,85 @@ if __name__ == '__main__':
 
 ```
 
+## Подписка на события
+####  Quik Lua config.json
+Нужно добавить PUB socket в Quik Lua JSON
+```
+{
+    "endpoints": [{
+        "type": "RPC", 
+        "serde_protocol": "json",
+        "active": true, 
+        "address": {
+            "host": "127.0.0.1",
+            "port": 5580
+        },
+
+        "auth": {
+            "mechanism": "NULL",
+        }
+    },
+    {
+        "type": "PUB", 
+        "serde_protocol": "json",
+        "active": true, 
+        "address": {
+            "host": "127.0.0.1",
+            "port": 5581
+        },
+
+        "auth": {
+            "mechanism": "NULL",
+        }
+    },
+    
+    ]
+}
+```
+#### Закомментируйте "тяжелые" события в `<QuikDir>/lua/quik-lua-rpc/main.lua`
+Они бесконечно спамят в сокет, что имеет малую ценность. В целом, я считаю, что связка RPC не очень правильное место для
+обработки всех сделок и параметров. Мой клиент имеет специальный механизм запросов и кеширования для текущих
+параметров.
+```
+-- OnAllTrade = service.event_callbacks.OnAllTrade
+-- OnParam = service.event_callbacks.OnParam
+-- OnQuote = service.event_callbacks.OnQuote
+```
+
+#### Добавьте сокет для событий и метод обработчик
+```python
+from aioquiklua import QuikLuaClientBase
+import asyncio
+
+async def custom_event_handler(event_name: str, event_data: dict) -> None:
+    print('custom_event_handler')
+    print(event_name)
+    print(event_data)
+
+async def main():
+    # Вызываем initialize() основного класса для инициализации внутренних переменных
+    qclient = QuikLuaClientBase("tcp://localhost:5580",               # RPC сокет
+                                None,                                 # DATA сокет
+                                socket_timeout=100,                   # Таймаут сокета после которого он выдает ошибку (в миллисекундах)
+                                n_simultaneous_sockets=5,             # Количество одновременно открытых сокетов
+                                history_backfill_interval_sec=10,     # Таймаут на ожидание истории (в секундах) (обычно занимает менее 1 сек)
+                                cache_min_update_sec=0.2,             # Время актуальности истории котировок к кеше, после последнего обновления
+                                verbosity=3,                          # Включаем  debugging information (чем выше значение тем больше идет в лог)
+                                # logger=logging.getLogger('testlog') # Можно задать кастомный логгер
+                                event_host="tcp://localhost:5581",    # PUB сокет
+                                event_callback_coro=custom_event_handler,  # Event handler async coro
+                                )
+    
+    await qclient.initialize()
+
+    while True:
+        await asyncio.sleep(1)
+        
+if __name__ == '__main__':
+    asyncio.run(main())
+
+```
+
 ## Производительность
 См. [examples/benchmark.py](https://github.com/alexveden/quik-lua-async-client-python/blob/75bc2aabaafcd3a28e2e4fc630bc6b5d7f8625d6/examples/benchmarks.py#L49)
 
@@ -117,7 +197,7 @@ if __name__ == '__main__':
 Я сделал все возможное, чтобы сделать работу кода максимально предсказуемой. Но, как всегда, ожидайте баги
 и используйте на свой страх и риск. 
 
-Версия: ранняя альфа 0.0.0.4, в разработке.
+Версия: 1.01 beta, работает несколько месяцев у меня, но не 24/7. В целом стабильно, но иногда обрывы связи квика могут ронять сокетыю 
 
 ### Quik Lua Config
 Вот как выглядит файл конфига `.../QUIK/lua/quik-lua-rpc/config.json`
