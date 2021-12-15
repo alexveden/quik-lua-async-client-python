@@ -94,6 +94,8 @@ class QuikLuaClientBase:
         self._params_watcher = ParamWatcher()
         self._params_poll_interval = params_poll_interval_sec
 
+        self._last_data_processed = None
+        self._last_event_processed = None
 
         self._aio_background_tasks = []
 
@@ -418,6 +420,7 @@ class QuikLuaClientBase:
                             cache = self._params_cache[(class_code, sec_code)]
                             rpc_result = await self._socket_send_receive_json(_socket, 'getParamEx2', class_code=class_code, sec_code=sec_code, param_name=param)
                             cache.process_param(param, rpc_result)
+                            self._last_data_processed = datetime.datetime.utcnow()
 
                         self._params_watcher.set_candidate_updates(candidates)
                         if self.verbosity > 2:
@@ -554,7 +557,10 @@ class QuikLuaClientBase:
                 # All good, task is running
                 pass
 
-        return await self.rpc_call('getInfoParam', param_name='LASTRECORDTIME')
+        result = await self.rpc_call('getInfoParam', param_name='LASTRECORDTIME')
+        self._last_data_processed = datetime.datetime.utcnow()
+
+        return result
 
     async def get_price_history(self, class_code: str, sec_code: str, interval: str, use_caching=True, copy=True) -> pd.DataFrame:
         """
@@ -834,6 +840,8 @@ class QuikLuaClientBase:
                 if (datetime.datetime.now()-e_dt).total_seconds() > 30:
                     log.error(f'Event processing delays > 30 sec, check client code performance')
 
+                self._last_event_processed = datetime.datetime.utcnow()
+
                 await self.on_new_event(e_header, e_data)
             except asyncio.CancelledError:
                 raise
@@ -852,3 +860,10 @@ class QuikLuaClientBase:
         if self._event_callback_coro is not None:
             await self._event_callback_coro(event_name, event_data)
 
+    @property
+    def last_data_processed_utc(self) -> Optional[datetime.datetime]:
+        return self._last_data_processed
+
+    @property
+    def last_event_processed_utc(self) -> Optional[datetime.datetime]:
+        return self._last_event_processed
