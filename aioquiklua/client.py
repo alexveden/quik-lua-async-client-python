@@ -1,14 +1,17 @@
-from typing import Tuple, Dict, Any, List, Union, Optional, Coroutine
-from .cache import HistoryCache, ParamCache, ParamWatcher
-import zmq
-import time
-import zmq.asyncio
 import asyncio
 import datetime
+import json.decoder
+import logging
+import time
+from typing import Tuple, Dict, Any, List, Union, Optional, Coroutine
+
 import numpy as np
 import pandas as pd
+import zmq
+import zmq.asyncio
+
+from .cache import HistoryCache, ParamCache, ParamWatcher
 from .errors import *
-import logging
 
 
 def create_logger():
@@ -34,11 +37,12 @@ class QuikLuaClientBase:
                  history_backfill_interval_sec: int = 10,
                  cache_min_update_sec: float = 0.2,
                  params_poll_interval_sec: float = 0.1,
+                 params_delay_timeout_sec: float = 60.0,
                  verbosity: int = 0,
                  logger=log,
                  event_host: Optional[str] = None,
                  event_list: List[str] = None,
-                 event_callback_coro = None,
+                 event_callback_coro: Coroutine = None,
                  ):
         """
         Initializes Quik LUA RPC Async client
@@ -50,6 +54,8 @@ class QuikLuaClientBase:
         :param history_backfill_interval_sec: historical bars poll intervals
         :param cache_min_update_sec: quik current params update intervals
         :param params_poll_interval_sec: quik current params poll intervals
+        :param params_delay_timeout_sec: minimal update interval between subscribed params (because on reconnection Quik keep sending outdated params,
+                                         we need to check if params were updated, and resubscribe)
         :param verbosity: debug information level 0-silent, higher the value the more information is printed to the log
         :param logger: logger instance
         :param event_host: PUB socket, as in `config.json` of Quik Lua RPC script (example: "tcp://localhost:5581")
@@ -93,9 +99,11 @@ class QuikLuaClientBase:
         self._params_cache: Dict[Tuple[str, str], ParamCache] = {}
         self._params_watcher = ParamWatcher()
         self._params_poll_interval = params_poll_interval_sec
+        self._params_delay_timeout_sec = params_delay_timeout_sec
 
         self._last_data_processed = None
         self._last_event_processed = None
+        self._last_quote_processed = None
 
         self._aio_background_tasks = []
 
@@ -359,7 +367,8 @@ class QuikLuaClientBase:
         """
 
         if (class_code, sec_code) not in self._params_cache:
-            raise QuikLuaException(f'{(class_code, sec_code)} is not subscribed')
+            #raise QuikLuaException(f'{(class_code, sec_code)} is not subscribed')
+            return
 
         cache = self._params_cache[(class_code, sec_code)]
         params_to_unwatch = [(class_code, sec_code, param) for param in cache.params.keys()]
@@ -420,13 +429,18 @@ class QuikLuaClientBase:
                             cache = self._params_cache[(class_code, sec_code)]
                             rpc_result = await self._socket_send_receive_json(_socket, 'getParamEx2', class_code=class_code, sec_code=sec_code, param_name=param)
                             cache.process_param(param, rpc_result)
-                            self._last_data_processed = datetime.datetime.utcnow()
+
+                            if cache.last_quote_change_utc is not None:
+                                if self._last_quote_processed is None:
+                                    self._last_quote_processed = cache.last_quote_change_utc
+                                else:
+                                    self._last_quote_processed = max(self._last_quote_processed, cache.last_quote_change_utc)
 
                         self._params_watcher.set_candidate_updates(candidates)
                         if self.verbosity > 2:
                             self.log.debug(f'#{len(candidates)} instruments params updated in {time.time()-b_time}sec')
-            except:
-                raise
+            except Exception as exc:
+                self.log.error(f'_params_watch_task() -- {repr(exc)}')
             finally:
                 if _socket:
                     _socket.close()
@@ -457,6 +471,9 @@ class QuikLuaClientBase:
         params = self._params_cache.get((class_code, sec_code))
         if params is None:
             raise QuikLuaException(f'{(class_code, sec_code)} not found in params, call self.params_subscribe() first')
+        if self.last_quote_processed_utc is not None:
+            if (datetime.datetime.utcnow() - self.last_quote_processed_utc).total_seconds() > self._params_delay_timeout_sec:
+                raise QuikLuaException(f'Suspected quotes processing delays')
         return params.params
 
     async def initialize(self):
@@ -558,7 +575,13 @@ class QuikLuaClientBase:
                 pass
 
         result = await self.rpc_call('getInfoParam', param_name='LASTRECORDTIME')
-        self._last_data_processed = datetime.datetime.utcnow()
+        if result and 'info_param' in result:
+            last_rec_dt = datetime.datetime.combine(datetime.datetime.utcnow().date(),
+                                                    datetime.time(*[int(t) for t in result['info_param'].split(':')])
+                                                    )
+            self._last_data_processed = pd.Timestamp(last_rec_dt, tz='Europe/Moscow').tz_convert('UTC').replace(tzinfo=None)
+        else:
+            self._last_data_processed = None
 
         return result
 
@@ -794,6 +817,9 @@ class QuikLuaClientBase:
 
         try:
             while True:
+                _data = None
+                event_header = None
+
                 async with self._lock_event:
                     if self._is_shutting_down:
                         # Close task
@@ -804,14 +830,16 @@ class QuikLuaClientBase:
                     if b'On' in response:
                         # New event header
                         event_header = response.decode()
-                        json_data = await _socket.recv_json()
+                        _data = await _socket.recv()
+                        json_data = json.loads(_data)
 
                         if self._event_filter is None or event_header.lower() in self._event_filter:
                             if self.verbosity > 2:
                                 self.log.debug(f'{event_header}: {json_data}')
 
                             self._event_que.put_nowait((event_header, datetime.datetime.now(), json_data))
-
+        except json.decoder.JSONDecodeError:
+            self.log.debug(f'Error parsing JSON: Event: {event_header} DATA: {_data}')
         except:
             raise
         finally:
@@ -863,6 +891,10 @@ class QuikLuaClientBase:
     @property
     def last_data_processed_utc(self) -> Optional[datetime.datetime]:
         return self._last_data_processed
+
+    @property
+    def last_quote_processed_utc(self) -> Optional[datetime.datetime]:
+        return self._last_quote_processed
 
     @property
     def last_event_processed_utc(self) -> Optional[datetime.datetime]:

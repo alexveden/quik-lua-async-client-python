@@ -1,10 +1,11 @@
 import asyncio
 import datetime
-from typing import Dict, Union, List, Any
-
-import pandas as pd
-import numpy as np
 from math import nan
+from typing import Dict, List, Any
+
+import numpy as np
+import pandas as pd
+
 from .errors import QuikLuaException
 
 
@@ -67,6 +68,7 @@ class ParamCache:
         if params_list is None or len(params_list) == 0:
             raise ValueError(f'params_list is empty')
         self.params = {p.lower(): None for p in params_list}  # type: Dict[str, Any]
+        self.last_quote_change_utc = None
 
     def process_param(self, param_key: str, param_ex_api_response: dict):
         """
@@ -86,7 +88,10 @@ class ParamCache:
             # Float or Int (but parse as floats)
             if res['result'] == '1':
                 # Request was successful
-                self.params[key] = float(res['param_value'])
+                _val = float(res['param_value'])
+                if self.params.get(key) != _val:
+                    self.last_quote_change_utc = datetime.datetime.utcnow()
+                self.params[key] = _val
             else:
                 self.params[key] = nan
         elif res['param_type'] == '3' or res['param_type'] == '4':
