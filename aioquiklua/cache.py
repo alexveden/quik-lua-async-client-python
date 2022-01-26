@@ -6,7 +6,7 @@ from typing import Dict, List, Any
 import numpy as np
 import pandas as pd
 
-from .errors import QuikLuaException
+from .errors import QuikLuaException, QuikLuaConnectionException
 
 
 class ParamWatcher:
@@ -84,6 +84,14 @@ class ParamCache:
 
         res = param_ex_api_response['param_ex']
 
+        if res['result'] != '1':
+            if key in self.params:
+                # Already in params, highly likely this occurs after disconnect
+                raise QuikLuaConnectionException(f'({self.class_code},{self.sec_code}): missing param valid param `{key}`, possibly after disconnect')
+            else:
+                # Highly likely it's unknown param_type / or key
+                raise QuikLuaException(f'({self.class_code},{self.sec_code}): getParamEx2() unknown or invalid param key: {param_key}: {res}')
+
         if res['param_type'] == '1' or res['param_type'] == '2':
             # Float or Int (but parse as floats)
             if res['result'] == '1':
@@ -120,9 +128,6 @@ class ParamCache:
                 self.params[key] = datetime.datetime.strptime(res['param_image'], '%d.%m.%Y')
             else:
                 self.params[key] = None
-        elif res['param_type'] == '0':
-            # Highly likely it's unknown param_type
-            raise QuikLuaException(f'({self.class_code},{self.sec_code}): getParamEx2() unknown or invalid param key: {param_key}')
         else:
             # Unexpected param type
             raise QuikLuaException(f'({self.class_code},{self.sec_code}): getParamEx2() returned unknown param type: {param_ex_api_response}')
