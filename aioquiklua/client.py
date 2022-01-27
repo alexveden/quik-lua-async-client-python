@@ -1,6 +1,5 @@
 import asyncio
 import datetime
-import json.decoder
 import logging
 import time
 from typing import Tuple, Dict, Any, List, Union, Optional, Coroutine
@@ -727,19 +726,20 @@ class QuikLuaClientBase:
 
         _socket = None
 
-        try:
-            while True:
-                if _socket is None:
-                    _socket = self.zmq_context.socket(zmq.SUB)
-                    # _socket.setsockopt(zmq.RCVTIMEO, 100)  # Make raising exceptions when receiving socket timeout or not exists
-                    _socket.setsockopt(zmq.LINGER, 1000)  # Free socket at socket.close timeout
-                    _socket.connect(self._event_host)
-                    _socket.setsockopt(zmq.SUBSCRIBE, b"")
+        while True:
 
-                _data = None
+            try:
+                json_data = None
                 event_header = None
-
                 async with self._lock_event:
+                    if _socket is None:
+                        self.log.debug(f'Connecting socket: SUB {self._event_host}')
+                        _socket = self.zmq_context.socket(zmq.SUB)
+                        # _socket.setsockopt(zmq.RCVTIMEO, 100)  # Make raising exceptions when receiving socket timeout or not exists
+                        _socket.setsockopt(zmq.LINGER, 1000)  # Free socket at socket.close timeout
+                        _socket.connect(self._event_host)
+                        _socket.setsockopt(zmq.SUBSCRIBE, b"")
+
                     if self._is_shutting_down:
                         # Close task
                         raise asyncio.CancelledError()
@@ -749,39 +749,36 @@ class QuikLuaClientBase:
                     if b'On' in response:
                         # New event header
                         event_header = response.decode()
+                        if event_header in ['OnDisconnected', 'OnStop', 'OnClose']:
+                            raise zmq.ZMQError(msg=f'Quik disconnected or stopped')
+
                         json_data = await _socket.recv_json()
-                        #json_data = json.loads(_data)
 
                         if self._event_filter is None or event_header.lower() in self._event_filter:
                             if self.verbosity > 2:
                                 self.log.debug(f'{event_header}: {json_data}')
 
                             self._event_que.put_nowait((event_header, datetime.datetime.now(), json_data))
-        except zmq.ZMQError as exc:
-            # Typical socket is not available
-            try:
-                _socket.close()
-            finally:
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self._last_event_processed = None
+                if _socket:
+                    try:
+                        _socket.setsockopt(zmq.LINGER, 0)
+                        _socket.close()
+                    except:
+                        self.log.error(f'_events_watch_task() -- error closing socket')
                 _socket = None
-            if self.verbosity > 1:
-                self.log.error(f'_events_watch_task() -- Socket error: {repr(exc)}')
 
-            # Wait for a new connection trial
-            await asyncio.sleep(10)
-        except asyncio.CancelledError:
-            raise
-        except json.decoder.JSONDecodeError:
-            self.log.debug(f'Error parsing JSON: Event: {event_header} DATA: {_data}')
-        except:
-            if _socket:
-                try:
-                    _socket.close()
-                except:
-                    self.log.error(f'_events_watch_task() -- error closing socket')
+                if isinstance(exc, zmq.ZMQError):
+                    if self.verbosity > 1:
+                        self.log.error(f'_events_watch_task() -- Socket error: {repr(exc)}')
+                else:
+                    self.log.exception(f'_events_watch_task() exception: {event_header}: data {json_data}')
 
-            self.log.exception(f'_events_watch_task() exception')
-
-            _socket = None
+                # Wait for a new connection trial
+                await asyncio.sleep(1)
 
     async def _events_dispatcher_task(self):
         """
