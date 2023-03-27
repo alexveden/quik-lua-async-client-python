@@ -137,7 +137,8 @@ class QuikLuaClientBase:
                                                     n_retries=2)
 
         # We must pass current event loop to Queue, to make it compatible with asyncio.create_task(self._events_dispatcher_task())
-        self._event_que = asyncio.Queue(loop=asyncio.get_running_loop())
+        # self._event_que = asyncio.Queue(loop=asyncio.get_running_loop())
+        self._event_que = asyncio.Queue()
 
         # Make params update task run in background
         # IMPORTANT: it may raise exceptions, but you must call self.heartbeat() function to check its status
@@ -559,7 +560,7 @@ class QuikLuaClientBase:
             finally:
                 del self._quote_cache[cache_key]
 
-    async def get_price_history(self, class_code: str, sec_code: str, interval: str, use_caching=True, copy=True) -> pd.DataFrame:
+    async def get_price_history(self, class_code: str, sec_code: str, interval: str, use_caching=True, copy=True, date_from=datetime.datetime(1900, 1, 1)) -> pd.DataFrame:
         """
         Retrieve price history from Quik server, and use cache if applicable
 
@@ -611,7 +612,7 @@ class QuikLuaClientBase:
 
                 ds_uuid = response['datasource_uuid']
                 cache.ds_uuid = ds_uuid
-                if self.verbosity > 1:
+                if self.verbosity > 0:
                     self.log.debug(f'Created DataSource: {(class_code, sec_code, interval)} uuid: {ds_uuid}')
             else:
                 # re-using Quik uuid from datasource.CreateDataSource with the same (class_code, sec_code, interval) combination
@@ -639,26 +640,32 @@ class QuikLuaClientBase:
                     break
                 n_tries += 1
             bar_count = response_size['value']
-            if self.verbosity > 2:
+            if self.verbosity > 0:
                 self.log.debug(f'Got the initial data after: {time.time() - time_begin:0.2f}sec ({(class_code, sec_code, interval)})')
 
             result = []
             time_begin = time.time()
-            last_bar_date = cache.last_bar_date
+            if cache.last_bar_date:
+                # Cache was populated
+                last_bar_date = cache.last_bar_date
+            else:
+                last_bar_date = date_from
+
             for i in range(bar_count, 0, -1):
                 if self._is_shutting_down:
                     raise asyncio.CancelledError()
-                candle_open = (await self.zmq_pool_data.rpc_call("datasource.O", datasource_uuid=ds_uuid, candle_index=i))['value']
-                candle_high = (await self.zmq_pool_data.rpc_call("datasource.H", datasource_uuid=ds_uuid, candle_index=i))['value']
-                candle_low = (await self.zmq_pool_data.rpc_call("datasource.L", datasource_uuid=ds_uuid, candle_index=i))['value']
-                candle_close = (await self.zmq_pool_data.rpc_call("datasource.C", datasource_uuid=ds_uuid, candle_index=i))['value']
-                candle_vol = (await self.zmq_pool_data.rpc_call("datasource.V", datasource_uuid=ds_uuid, candle_index=i))['value']
                 _dt = (await self.zmq_pool_data.rpc_call("datasource.T", datasource_uuid=ds_uuid, candle_index=i))['time']
                 bar_date = datetime.datetime(_dt['year'], _dt['month'], _dt['day'], _dt['hour'], _dt['min'], _dt['sec'], _dt['ms'] * 1000)
 
                 if bar_date < last_bar_date:
                     # Update only until last bar in cache (including it, to update the most recent bar)
                     break
+
+                candle_open = (await self.zmq_pool_data.rpc_call("datasource.O", datasource_uuid=ds_uuid, candle_index=i))['value']
+                candle_high = (await self.zmq_pool_data.rpc_call("datasource.H", datasource_uuid=ds_uuid, candle_index=i))['value']
+                candle_low = (await self.zmq_pool_data.rpc_call("datasource.L", datasource_uuid=ds_uuid, candle_index=i))['value']
+                candle_close = (await self.zmq_pool_data.rpc_call("datasource.C", datasource_uuid=ds_uuid, candle_index=i))['value']
+                candle_vol = (await self.zmq_pool_data.rpc_call("datasource.V", datasource_uuid=ds_uuid, candle_index=i))['value']
 
                 result.append({
                     'dt': bar_date,

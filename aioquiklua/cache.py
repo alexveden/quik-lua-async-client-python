@@ -140,7 +140,7 @@ class HistoryCache:
         self.sec_code = sec_code
         self.interval = interval
         self._data = None
-        self._last_quote = datetime.datetime(1900, 1, 1)
+        self._last_quote = None
         self.ds_uuid = None
         self._lock = asyncio.Lock()
         self._last_update = None
