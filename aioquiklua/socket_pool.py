@@ -3,6 +3,7 @@ import concurrent.futures
 
 import zmq
 import zmq.asyncio
+import json
 
 from .errors import *
 
@@ -48,7 +49,8 @@ class ZMQSocketPoolAsync:
         _send_result = socket.send_json(req)
 
         if ((socket.poll(self.socket_timeout)) & zmq.POLLIN) != 0:
-            response = socket.recv_json()
+            response_bytes = socket.recv(0)
+            response = json.loads(response_bytes.decode('cp1251'))
 
             if 'result' in response and not response['result'].get('is_error'):
                 return True, response['result']
