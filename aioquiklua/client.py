@@ -62,7 +62,7 @@ class QuikLuaClientBase:
         :param event_list: list of events to filter, by default handles all events
         :param event_callback_coro: external coroutine function for event handling, or override on_new_event() in child class
         """
-        assert '127.0.0.1' in rpc_host or 'localhost' in rpc_host, f'Only localhost is allowed for RPC requests for security reasons, got {rpc_host}'
+        # assert '127.0.0.1' in rpc_host or 'localhost' in rpc_host, f'Only localhost is allowed for RPC requests for security reasons, got {rpc_host}'
         self.verbosity = verbosity
         self.log = logger
 
