@@ -839,3 +839,24 @@ class QuikLuaClientBase:
     @property
     def last_event_processed_utc(self) -> Optional[datetime.datetime]:
         return self._last_event_processed
+
+
+    def stats(self):
+
+        rpc_stats = self.zmq_pool_rpc.stats()
+        data_stats = self.zmq_pool_data.stats()
+
+        return dict(
+            zmq_rpc_stats = rpc_stats,
+            zmq_data_stats = data_stats,
+            params_instruments = len(self._params_cache),
+            params_total_count = self._params_watcher.count(),
+            history_cache_count = len(self._quote_cache),
+            last_data_processed_utc = self._last_data_processed,
+            last_quote_processed_utc = self._last_quote_processed,
+            last_event_processed_utc = self._last_event_processed,
+        )
+
+    def stats_reset(self):
+        self.zmq_pool_rpc.stats_reset()
+        self.zmq_pool_data.stats_reset()

@@ -18,6 +18,9 @@ class ParamWatcher:
         self._watched = pd.DataFrame(columns=['dt', 'key'])
         self._watched['dt'] = self._watched['dt'].astype(np.float)
 
+    def count(self):
+        return len(self._watched)
+
     def subscribed(self, param_tuple_list):
         dt_now = datetime.datetime.now().timestamp()
         for (class_code, sec_code, param, update_interval) in param_tuple_list:
