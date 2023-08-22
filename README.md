@@ -204,7 +204,7 @@ if __name__ == '__main__':
 
 ### Quik Lua Config
 Вот как выглядит файл конфига `.../QUIK/lua/quik-lua-rpc/config.json`
-```json
+```json5
   {
     "endpoints": [{
         "type": "RPC",
@@ -236,7 +236,7 @@ if __name__ == '__main__':
 ```
 
 Пример конфига c CURVE-авторизацией для RPC
-```json
+```json5
   {
     "endpoints": [{
         "type": "RPC", 
