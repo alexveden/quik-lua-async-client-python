@@ -7,6 +7,7 @@ from typing import Tuple, Dict, Any, List, Union, Optional, Callable
 import pandas as pd
 import zmq
 import zmq.asyncio
+import zmq.auth
 
 from .cache import HistoryCache, ParamCache, ParamWatcher
 from .errors import QuikLuaNoHistoryException, QuikLuaException, QuikLuaConnectionException
@@ -42,7 +43,8 @@ class QuikLuaClientBase:
                  event_host: Optional[str] = None,
                  event_list: Optional[List[str]] = None,
                  event_callback_coro: Optional[Callable] = None,
-                 ):
+                 client_secret_key_path: Optional[str] = None,
+                 server_public_key_path: Optional[str] = None) -> None:
         """
         Initializes Quik LUA RPC Async client
 
@@ -62,6 +64,8 @@ class QuikLuaClientBase:
         :param event_list: list of events to filter, by default handles all events
         :param event_callback_coro: external coroutine function for event handling,
         or override on_new_event() in child class
+        :param client_secret_key_path: path to client secrets file (example: C:\\keys\\client.key_secret)
+        :param server_public_key_path: path to server public file (example: C:\\keys\\client.key_secret)
         """
         self.verbosity = verbosity
         self.log = logger
@@ -106,14 +110,32 @@ class QuikLuaClientBase:
 
         self._aio_background_tasks: List[Any] = []
 
+        self.curve_auth: bool = False
+        self._server_key: Optional[bytes] = None
+        self._clients_keys: Optional[Tuple[bytes, bytes]] = None
+
+        if server_public_key_path and client_secret_key_path:
+            assert server_public_key_path.endswith('.key'), \
+                'File with public server key must be ".key" format'
+            assert client_secret_key_path.endswith('.key_secret'), \
+                'File with secret client key must be ".key_secret" format'
+            try:
+                self._server_key, _ = zmq.auth.load_certificate(server_public_key_path)
+                self._clients_keys = zmq.auth.load_certificate(client_secret_key_path)  # type: ignore
+            except Exception as e:
+                raise QuikLuaConnectionException() from e
+            self.curve_auth = True
+
         if self.verbosity > 1:
             self.log.debug('Quik client parameters:\n'
+                           'Auth: %s\n'
                            'RPC Host: %s\n'
                            'DATA Host: %s\n'
                            'SocketTimeout: %s\n'
                            'History Backfill Min Interval: %s\n'
                            'N simultaneous sockets: %s\n'
                            'Quote Cache Min Update sec: %s\n',
+                           self.curve_auth,
                            self.rpc_host,
                            self._data_host,
                            self.socket_timeout,
@@ -132,7 +154,9 @@ class QuikLuaClientBase:
         self.zmq_pool_rpc = ZMQSocketPoolAsync(self.rpc_host,
                                                socket_timeout=self.socket_timeout,
                                                n_sockets=self.n_simultaneous_sockets,
-                                               n_retries=2)
+                                               n_retries=2,
+                                               server_key=self._server_key,
+                                               clients_keys=self._clients_keys)
 
         if self._data_host is None:
             self.zmq_pool_data = self.zmq_pool_rpc

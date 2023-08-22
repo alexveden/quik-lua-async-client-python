@@ -1,18 +1,27 @@
 import asyncio
 import concurrent.futures
-from typing import Any, Dict, Tuple, Union, List
+from typing import Any, Dict, Tuple, Union, List, Optional
 import json
 from collections import defaultdict
 import time
 
 import zmq
+import zmq.auth
 import zmq.asyncio
 
 from .errors import QuikLuaException, QuikLuaConnectionException
 
 
 class ZMQSocketPoolAsync:
-    def __init__(self, rpc_host: str, socket_timeout: int = 100, n_sockets: int = 5, n_retries: int = 2) -> None:
+    def __init__(
+            self,
+            rpc_host: str,
+            socket_timeout: int = 100,
+            n_sockets: int = 5,
+            n_retries: int = 2,
+            server_key: Optional[bytes] = None,
+            clients_keys: Optional[Tuple[bytes, bytes]] = None,
+    ) -> None:
         self.zmq_context = zmq.Context.instance()
         self.thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=n_sockets)
         self.socket_timeout = socket_timeout
@@ -28,6 +37,8 @@ class ZMQSocketPoolAsync:
         self._stats_rpc_calls: defaultdict = defaultdict(int)
         self._stats_rpc_total_time: float = 0
         self._stats_rpc_total_count: int = 0
+        self.server_key = server_key
+        self.client_keys = clients_keys
 
     def stats(self) -> Dict[str, Any]:
         rpc_avg_roundtrip: Union[int, float] = -1
@@ -62,6 +73,10 @@ class ZMQSocketPoolAsync:
 
     def _init_socket(self, idx: int) -> zmq.Socket:
         _socket = self.zmq_context.socket(zmq.REQ)
+        if self.server_key and self.client_keys:
+            _socket.setsockopt(zmq.CURVE_PUBLICKEY, self.client_keys[0])
+            _socket.setsockopt(zmq.CURVE_SECRETKEY, self.client_keys[1])
+            _socket.setsockopt(zmq.CURVE_SERVERKEY, self.server_key)
         _socket.connect(self.rpc_host)
         self._socket_cache[idx] = _socket
         return _socket
