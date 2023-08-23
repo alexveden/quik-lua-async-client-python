@@ -167,12 +167,12 @@ class QuikLuaClientBase:
         self._aio_background_tasks.append(asyncio.create_task(self._events_watch_task(), name='aioquiklua-_events_watch_task'))
         self._aio_background_tasks.append(asyncio.create_task(self._events_dispatcher_task(), name='aioquiklua-_events_dispatcher_task'))
 
-    async def params_subscribe(self, 
+    async def params_subscribe(self,
                                class_code: str,
                                sec_code: str,
                                update_interval_sec: Union[List[float], float],
                                params_list: List[str],
-                               is_snapshot: bool = False) ->  Dict[str, Any]:
+                               is_snapshot: bool = False) -> Dict[str, Any]:
         """
         Requests Quik params subscription for unique combination of (class_code, sec_code) and initializes params cache.
 
@@ -365,7 +365,7 @@ class QuikLuaClientBase:
                     params_to_watch.append((class_code, sec_code, param, float(update_interval_sec[i])))
                 else:
                     params_to_watch.append((class_code, sec_code, param, float(update_interval_sec)))
-            
+
             if is_snapshot:
                 if self.verbosity > 1:
                     self.log.debug(f'params_subscribe({class_code}, {sec_code}) -- snapshot -- {cache.params}')
@@ -374,7 +374,6 @@ class QuikLuaClientBase:
                 for param in params_list:
                     await self.zmq_pool_data.rpc_call('CancelParamRequest', class_code=class_code, sec_code=sec_code, db_name=param)
                 return cache.params
-
 
             # Add new params to watcher
             async with self._params_watcher.lock:
@@ -606,9 +605,9 @@ class QuikLuaClientBase:
                                 class_code: str,
                                 sec_code: str,
                                 interval: str,
-                                use_caching=True,
-                                copy=True,
-                                date_from=datetime.datetime(1900, 1, 1)
+                                use_caching: bool = True,
+                                copy: bool = True,
+                                date_from: dtm.datetime = dtm.datetime(1900, 1, 1)
                                 ) -> pd.DataFrame:
         """
         Retrieve price history from Quik server, and use cache if applicable
