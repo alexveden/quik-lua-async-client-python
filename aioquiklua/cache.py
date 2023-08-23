@@ -10,8 +10,7 @@ from .errors import QuikLuaException, QuikLuaConnectionException
 
 class ParamWatcher:
     """
-    A special class that decides which params have to be updated based on given interval
-    and time passed since last update.
+    A special class that decides which params have to be updated based on given interval and time passed since last update.
     """
     def __init__(self) -> None:
         self.lock = asyncio.Lock()
@@ -76,8 +75,7 @@ class ParamCache:
         Fills the parameter cache based on getParamEx2() RPC response
 
         :param param_key: param field name, must be `params_list` in constructor
-        :param param_ex_api_response: as
-        {'param_ex': {'param_type': '1',  'result': '1',  'param_image': '152 420',  'param_value': '152420.000000'}}
+        :param param_ex_api_response: as {'param_ex': {'param_type': '1',  'result': '1',  'param_image': '152 420',  'param_value': '152420.000000'}}
         :return:
         """
         key = param_key.lower()

@@ -49,21 +49,18 @@ class QuikLuaClientBase:
         Initializes Quik LUA RPC Async client
 
         :param rpc_host: RPC socket, as in `config.json` of Quik Lua RPC script (example: "tcp://localhost:5580")
-        :param data_host: Alternative RPC socket, used only for data requests
-        as in `config.json` of Quik Lua RPC script. If None it uses rpc_host value
+        :param data_host: Alternative RPC socket, used only for data requests as in `config.json` of Quik Lua RPC script. If None it uses rpc_host value  # noqa: E501
         :param socket_timeout: initial socket connection timeout for RPC requests
         :param n_simultaneous_sockets: number of simultaneous socket connections for increased concurrency speed
         :param history_backfill_interval_sec: historical bars poll intervals
         :param cache_min_update_sec: quik current params update intervals
         :param params_poll_interval_sec: quik current params poll intervals
-        :param params_delay_timeout_sec: minimal update interval between subscribed params (because on reconnection
-        Quik keep sending outdated params, we need to check if params were updated, and resubscribe)
+        :param params_delay_timeout_sec: minimal update interval between subscribed params (because on reconnection Quik keep sending outdated params, we need to check if params were updated, and resubscribe)
         :param verbosity: debug information level 0-silent, higher the value the more information is printed to the log
         :param logger: logger instance
         :param event_host: PUB socket, as in `config.json` of Quik Lua RPC script (example: "tcp://localhost:5581")
         :param event_list: list of events to filter, by default handles all events
-        :param event_callback_coro: external coroutine function for event handling,
-        or override on_new_event() in child class
+        :param event_callback_coro: external coroutine function for event handling, or override on_new_event() in child class
         :param client_secret_key_path: path to client secrets file (example: C:\\keys\\client.key_secret)
         :param server_public_key_path: path to server public file (example: C:\\keys\\client.key_secret)
         """
@@ -78,8 +75,8 @@ class QuikLuaClientBase:
         self._event_callback_coro = event_callback_coro
 
         if self.verbosity > 0:
-            self.log.debug('Connections params: RPC: %s DATA: %s EVENT: %s',
-                           self.rpc_host, self._data_host, self._event_host)
+            self.log.debug(f'Connections params: RPC: {self.rpc_host} '
+                           f'DATA: {self._data_host} EVENT: {self._event_host}')
 
         #
         # There is some limit of simultaneous sockets that Quick Lua RPC can handle
@@ -127,21 +124,14 @@ class QuikLuaClientBase:
             self.curve_auth = True
 
         if self.verbosity > 1:
-            self.log.debug('Quik client parameters:\n'
-                           'Auth: %s\n'
-                           'RPC Host: %s\n'
-                           'DATA Host: %s\n'
-                           'SocketTimeout: %s\n'
-                           'History Backfill Min Interval: %s\n'
-                           'N simultaneous sockets: %s\n'
-                           'Quote Cache Min Update sec: %s\n',
-                           self.curve_auth,
-                           self.rpc_host,
-                           self._data_host,
-                           self.socket_timeout,
-                           self.history_backfill_interval_sec,
-                           self.n_simultaneous_sockets,
-                           self._quote_cache_min_update_sec)
+            self.log.debug(f'Quik client parameters:\n'
+                           f'Auth: {self.curve_auth}\n'
+                           f'RPC Host: {self.rpc_host}\n'
+                           f'DATA Host: {self._data_host}\n'
+                           f'SocketTimeout: {self.socket_timeout}\n'
+                           f'History Backfill Min Interval: {self.history_backfill_interval_sec}\n'
+                           f'N simultaneous sockets: {self.n_simultaneous_sockets}\n'
+                           f'Quote Cache Min Update sec: {self._quote_cache_min_update_sec}\n')
 
         self._is_shutting_down = False
 
@@ -194,18 +184,15 @@ class QuikLuaClientBase:
             - Only one subscription per (class_code, sec_code) allowed, extend params_list if you need more fields
             - params_list names casted to lower case!
             - Method can support any instrument type, including options
-            - Values of the params are casted to float, str, datetime.datetime,
-            datetime.time (depending on type returned by Quik Lua API)
+            - Values of the params are casted to float, str, datetime.datetime, datetime.time (depending on type returned by Quik Lua API)
             - Missing or currently unfilled values may be None (for objects) or float('nan') for numeric
             - The client will take care of data updates under the hood,
             just call self.params_get(class_code: str, sec_code: str) to get most recent data
 
         :param class_code: Quik class code
         :param sec_code: Quik sec code
-        :param update_interval_sec: poll interval for parameter,
-        or maybe a list of number per each element in `params_list`
-        :param params_list: a list of parameter to track (case insensitive, but casted to lower case later!),
-        e.g. ['STATUS', 'lotsize', 'BID', 'offer']
+        :param update_interval_sec: poll interval for parameter, or maybe a list of number per each element in `params_list`
+        :param params_list: a list of parameter to track (case insensitive, but casted to lower case later!), e.g. ['STATUS', 'lotsize', 'BID', 'offer']
                  # Unofficial list from https://forum.quik.ru/forum10/topic6280/
                  # It may be outdated, use DDE export to Excel to get valid values
                  STATUS                  STRING   Статус
@@ -342,8 +329,7 @@ class QuikLuaClientBase:
                  SEC_PRICE_STEP          DOUBLE   Минимальный шаг цены
                  SECTYPE                 STRING   Тип инструмента
 
-        :raises QuikLuaException: if param name is not valid or not applicable to instrument
-        (for example, volatility for future contract)
+        :raises QuikLuaException: if param name is not valid or not applicable to instrument (for example, volatility for future contract)
 
         :return: Nothing
         """
@@ -392,8 +378,7 @@ class QuikLuaClientBase:
                 self._params_cache[(class_code, sec_code)] = cache
 
             if self.verbosity > 1:
-                self.log.debug('params_subscribe(%s, %s) -- initial values -- %s',
-                               class_code, sec_code, cache.params)
+                self.log.debug(f'params_subscribe({class_code}, {sec_code}) -- initial values -- {cache.params}')
         except zmq.ZMQError as exc:
             raise QuikLuaConnectionException(repr(exc)) from exc
         finally:
@@ -467,16 +452,16 @@ class QuikLuaClientBase:
 
                         self._params_watcher.set_candidate_updates(candidates)
                         if self.verbosity > 2:
-                            self.log.debug('#%s instruments params updated in %ssec',
-                                           len(candidates), time.time() - b_time)
+                            self.log.debug(f'#{len(candidates)} instruments '
+                                           f'params updated in {time.time() - b_time}sec')
             except QuikLuaConnectionException as exc:
                 # Typical socket is not available
                 if self.verbosity > 1:
-                    self.log.error('_events_watch_task() -- Socket error: %s', repr(exc))
+                    self.log.error(f'_events_watch_task() -- Socket error: {repr(exc)}')
                 # Wait for a new connection trial
                 await asyncio.sleep(10)
             except Exception as exc:
-                self.log.error('_params_watch_task() -- %s', repr(exc))
+                self.log.error(f'_params_watch_task() -- {repr(exc)}')
 
     def params_get(self, class_code: str, sec_code: str) -> Dict[str, Any]:
         """
@@ -487,8 +472,7 @@ class QuikLuaClientBase:
         :raises QuikLuaException: if (class_code, sec_code) is not subscribed
         :return: a dictionary with all params
             Example:
-            > await qclient.params_subscribe('SPBFUT', 'RIH1',
-            ['bid', 'offer', 'last', 'MAT_DATE', 'time', 'STEPPRICET'])
+            > await qclient.params_subscribe('SPBFUT', 'RIH1', ['bid', 'offer', 'last', 'MAT_DATE', 'time', 'STEPPRICET'])
             > qclient.params_get('SPBFUT', 'RIH1')
 
              {'bid': 152420.0,
@@ -549,7 +533,7 @@ class QuikLuaClientBase:
             all_cache = list(self._quote_cache.items())
             for key, cache in all_cache:
                 if cache.ds_uuid and self.verbosity > 1:
-                    self.log.debug('datasource.Close: %s %s', key, cache.ds_uuid)
+                    self.log.debug(f'datasource.Close: {key} {cache.ds_uuid}')
                 await self.rpc_call("datasource.Close", datasource_uuid=cache.ds_uuid)
 
         if self._params_cache:
@@ -638,8 +622,7 @@ class QuikLuaClientBase:
         :param use_caching: use in-memory cache and update only most recent data since last historical request
         :param copy: returns a copy of a data cache
         :param date_from: date from
-        :exception: QuikLuaNoHistoryException - if no history found or backfill is too long
-        (see self.history_backfill_interval_sec param)
+        :exception: QuikLuaNoHistoryException - if no history found or backfill is too long (see self.history_backfill_interval_sec param)
         :return: pd.DataFrame(['o', 'h', 'l', 'c', 'v']) with DateTime Index (TZ in Moscow time, but tz-naive)
         """
 
@@ -677,7 +660,7 @@ class QuikLuaClientBase:
                 ds_uuid = response['datasource_uuid']
                 cache.ds_uuid = ds_uuid
                 if self.verbosity > 0:
-                    self.log.debug('Created DataSource: %s uuid: %s', (class_code, sec_code, interval), ds_uuid)
+                    self.log.debug(f'Created DataSource: {(class_code, sec_code, interval)} uuid: {ds_uuid}')
             else:
                 # re-using Quik uuid from datasource.CreateDataSource with the same (class_code, sec_code, interval)
                 # combination
@@ -710,7 +693,7 @@ class QuikLuaClientBase:
                 n_tries += 1
             bar_count = response_size['value']
             if self.verbosity > 0:
-                self.log.debug('Got the initial data after: %s',
+                self.log.debug(f'Got the initial data after: '
                                f'{time.time() - time_begin:0.2f}sec ({(class_code, sec_code, interval)})')
 
             result = []
@@ -733,21 +716,11 @@ class QuikLuaClientBase:
                     # Update only until last bar in cache (including it, to update the most recent bar)
                     break
 
-                candle_open = \
-                    (await self.zmq_pool_data.rpc_call("datasource.O", datasource_uuid=ds_uuid, candle_index=i))[
-                        'value']
-                candle_high = \
-                    (await self.zmq_pool_data.rpc_call("datasource.H", datasource_uuid=ds_uuid, candle_index=i))[
-                        'value']
-                candle_low = \
-                    (await self.zmq_pool_data.rpc_call("datasource.L", datasource_uuid=ds_uuid, candle_index=i))[
-                        'value']
-                candle_close = \
-                    (await self.zmq_pool_data.rpc_call("datasource.C", datasource_uuid=ds_uuid, candle_index=i))[
-                        'value']
-                candle_vol = \
-                    (await self.zmq_pool_data.rpc_call("datasource.V", datasource_uuid=ds_uuid, candle_index=i))[
-                        'value']
+                candle_open = (await self.zmq_pool_data.rpc_call("datasource.O", datasource_uuid=ds_uuid, candle_index=i))['value']  # noqa: E501
+                candle_high = (await self.zmq_pool_data.rpc_call("datasource.H", datasource_uuid=ds_uuid, candle_index=i))['value']  # noqa: E501
+                candle_low = (await self.zmq_pool_data.rpc_call("datasource.L", datasource_uuid=ds_uuid, candle_index=i))['value']  # noqa: E501
+                candle_close = (await self.zmq_pool_data.rpc_call("datasource.C", datasource_uuid=ds_uuid, candle_index=i))['value']  # noqa: E501
+                candle_vol = (await self.zmq_pool_data.rpc_call("datasource.V", datasource_uuid=ds_uuid, candle_index=i))['value']  # noqa: E501
 
                 result.append({
                     'dt': bar_date,
@@ -768,14 +741,12 @@ class QuikLuaClientBase:
             else:
                 return pd.DataFrame()
             if self.verbosity > 1:
-                self.log.debug('%s %s bars updated in cache', sec_code, len(quotes_df))
+                self.log.debug(f'{sec_code} {len(quotes_df)} bars updated in cache')
             cache.process_history(quotes_df)
 
             if self.verbosity > 2:
-                self.log.debug(
-                    'Historical quotes processed in %s',
-                    f'{time.time() - time_begin:0.2f}sec ({(class_code, sec_code, interval)})'
-                )
+                self.log.debug(f'Historical quotes processed in '
+                               f'{time.time() - time_begin:0.2f}sec ({(class_code, sec_code, interval)})')
 
             # Return full history from cache
             if copy:
@@ -817,7 +788,7 @@ class QuikLuaClientBase:
             return
 
         if self.verbosity > 0:
-            self.log.debug('Watching events: %s', self._event_host)
+            self.log.debug(f'Watching events: {self._event_host}')
 
         _socket = None
 
@@ -828,7 +799,7 @@ class QuikLuaClientBase:
                 event_header = None
                 async with self._lock_event:
                     if _socket is None:
-                        self.log.debug('Connecting socket: SUB %s', self._event_host)
+                        self.log.debug(f'Connecting socket: SUB {self._event_host}')
                         _socket = self.zmq_context.socket(zmq.SUB)
                         # _socket.setsockopt(zmq.RCVTIMEO, 100)
                         # Make raising exceptions when receiving socket timeout or not exists
@@ -852,7 +823,7 @@ class QuikLuaClientBase:
 
                         if self._event_filter is None or event_header.lower() in self._event_filter:
                             if self.verbosity > 2:
-                                self.log.debug('%s: %s', event_header, json_data)
+                                self.log.debug(f'{event_header}: {json_data}',)
 
                             self._event_que.put_nowait((event_header, dtm.datetime.now(), json_data))
             except asyncio.CancelledError as e:
@@ -864,14 +835,14 @@ class QuikLuaClientBase:
                         _socket.setsockopt(zmq.LINGER, 0)
                         _socket.close()
                     except Exception as e:
-                        self.log.error('_events_watch_task() -- error closing socket: %s', e)
+                        self.log.error(f'_events_watch_task() -- error closing socket: {e}')
                 _socket = None
 
                 if isinstance(exc, zmq.ZMQError):
                     if self.verbosity > 1:
-                        self.log.error('_events_watch_task() -- Socket error: %s', repr(exc))
+                        self.log.error(f'_events_watch_task() -- Socket error: {repr(exc)}',)
                 else:
-                    self.log.exception('_events_watch_task() exception: %s: data %s', event_header, json_data)
+                    self.log.exception(f'_events_watch_task() exception: {event_header}: data {json_data}')
 
                 # Wait for a new connection trial
                 await asyncio.sleep(1)
@@ -903,7 +874,7 @@ class QuikLuaClientBase:
             except asyncio.CancelledError as e:
                 raise e
             except Exception as e:
-                self.log.exception('Exception: %s', e)
+                self.log.exception(f'Exception: {e}')
 
     async def on_new_event(self, event_name: str, event_data: dict) -> None:
         """

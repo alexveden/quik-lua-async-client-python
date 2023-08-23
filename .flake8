@@ -32,6 +32,8 @@ ignore=
     W503,
     # W504 line break after binary operator
     W504,
+    # E501 to long string
+    E501,
     # B008 Do not perform function calls in argument defaults.
     B008,
 
