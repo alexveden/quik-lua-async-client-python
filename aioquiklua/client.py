@@ -62,7 +62,6 @@ class QuikLuaClientBase:
         :param event_list: list of events to filter, by default handles all events
         :param event_callback_coro: external coroutine function for event handling, or override on_new_event() in child class
         """
-        # assert '127.0.0.1' in rpc_host or 'localhost' in rpc_host, f'Only localhost is allowed for RPC requests for security reasons, got {rpc_host}'
         self.verbosity = verbosity
         self.log = logger
 
@@ -146,7 +145,12 @@ class QuikLuaClientBase:
         self._aio_background_tasks.append(asyncio.create_task(self._events_watch_task(), name='aioquiklua-_events_watch_task'))
         self._aio_background_tasks.append(asyncio.create_task(self._events_dispatcher_task(), name='aioquiklua-_events_dispatcher_task'))
 
-    async def params_subscribe(self, class_code: str, sec_code: str, update_interval_sec: Union[List[float], float], params_list: List[str]) ->  Dict[str, Any]:
+    async def params_subscribe(self, 
+                               class_code: str,
+                               sec_code: str,
+                               update_interval_sec: Union[List[float], float],
+                               params_list: List[str],
+                               is_snapshot: bool = False) ->  Dict[str, Any]:
         """
         Requests Quik params subscription for unique combination of (class_code, sec_code) and initializes params cache.
 
@@ -297,6 +301,7 @@ class QuikLuaClientBase:
                  SEC_SCALE               DOUBLE   Точность цены
                  SEC_PRICE_STEP          DOUBLE   Минимальный шаг цены
                  SECTYPE                 STRING   Тип инструмента
+        :param is_snapshot: returns only snapshot of current params without subscription
 
         :raises QuikLuaException: if param name is not valid or not applicable to instrument (for example, volatility for future contract)
 
@@ -334,10 +339,19 @@ class QuikLuaClientBase:
                 param_ex_api_response = await self.zmq_pool_data.rpc_call('getParamEx2', class_code=class_code, sec_code=sec_code, param_name=param)
                 cache.process_param(param, param_ex_api_response)
                 if isinstance(update_interval_sec, (list, tuple)):
-                    assert isinstance(update_interval_sec[i], (float, int, np.float, np.int)), f'update_interval_sec: Expected float got {update_interval_sec[i]}'
-                    params_to_watch.append((class_code, sec_code, param, update_interval_sec[i]))
+                    params_to_watch.append((class_code, sec_code, param, float(update_interval_sec[i])))
                 else:
                     params_to_watch.append((class_code, sec_code, param, float(update_interval_sec)))
+            
+            if is_snapshot:
+                if self.verbosity > 1:
+                    self.log.debug(f'params_subscribe({class_code}, {sec_code}) -- snapshot -- {cache.params}')
+
+                # This is temporary params subscription, once-in-a-while
+                for param in params_list:
+                    await self.zmq_pool_data.rpc_call('CancelParamRequest', class_code=class_code, sec_code=sec_code, db_name=param)
+                return cache.params
+
 
             # Add new params to watcher
             async with self._params_watcher.lock:
@@ -523,7 +537,7 @@ class QuikLuaClientBase:
         """
         if self._is_shutting_down:
             raise asyncio.CancelledError()
-        if self.verbosity > 1:
+        if self.verbosity > 2:
             self.log.debug('Heartbeat call sent')
 
         #
@@ -560,7 +574,14 @@ class QuikLuaClientBase:
             finally:
                 del self._quote_cache[cache_key]
 
-    async def get_price_history(self, class_code: str, sec_code: str, interval: str, use_caching=True, copy=True, date_from=datetime.datetime(1900, 1, 1)) -> pd.DataFrame:
+    async def get_price_history(self,
+                                class_code: str,
+                                sec_code: str,
+                                interval: str,
+                                use_caching=True,
+                                copy=True,
+                                date_from=datetime.datetime(1900, 1, 1)
+                                ) -> pd.DataFrame:
         """
         Retrieve price history from Quik server, and use cache if applicable
 
