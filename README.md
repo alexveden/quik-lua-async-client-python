@@ -162,6 +162,9 @@ async def main():
                                 # logger=logging.getLogger('testlog') # Можно задать кастомный логгер
                                 event_host="tcp://localhost:5561",    # PUB сокет
                                 event_callback_coro=custom_event_handler,  # Event handler async coro
+                                # Ключи для CURVE-авторизации (опционально)
+                                # client_secret_key_path=r'C:\keys\client.key_secret',
+                                # server_public_key_path=r'C:\keys\server.key'
                                 )
     
     await qclient.initialize()
@@ -201,7 +204,7 @@ if __name__ == '__main__':
 
 ### Quik Lua Config
 Вот как выглядит файл конфига `.../QUIK/lua/quik-lua-rpc/config.json`
-```json
+```json5
   {
     "endpoints": [{
         "type": "RPC",
@@ -230,4 +233,50 @@ if __name__ == '__main__':
         }
     }]
 }
+```
+
+Пример конфига c CURVE-авторизацией для RPC
+```json5
+  {
+    "endpoints": [{
+        "type": "RPC", 
+        "serde_protocol": "json",
+        "active": true, 
+        "address": {
+            "host": "127.0.0.1",
+            "port": 5560
+        },
+
+        "auth": {
+            "mechanism": "CURVE",
+            "curve": {
+                    "server": {
+                        "public": "jCAGH1XiTUQynN-4Ypqs{uJt375(mbGq!UFr?h-A",
+                        "secret": "kH^$gqnFi.cZE]f.A+3r5A1oVUm%5?lwx1nSIZhq"
+                    },
+                    // Список публичных CURVE-ключей пользователей
+                    "clients": [">h1V}c#$GOeHXh3.gb]@^$Ef)R[tQpPH(*/ajaqb"]
+            }
+        }
+    }, 
+    {
+        "type": "PUB", 
+        "serde_protocol": "json",
+        "active": true, 
+        "address": {
+            "host": "127.0.0.1",
+            "port": 5561
+        },
+
+        "auth": {
+            "mechanism": "NULL"
+        }
+    }]
+}
+```
+Для CURVE-авторизации необходимо сгенерировать ключи
+```python
+from aioquiklua.utils import generate_keys
+
+generate_keys(key_dir=r'C:\keys')
 ```

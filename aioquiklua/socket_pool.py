@@ -1,82 +1,100 @@
 import asyncio
 import concurrent.futures
-
-import zmq
-import zmq.asyncio
+from typing import Any, Dict, Tuple, Union, List, Optional
 import json
 from collections import defaultdict
 import time
 
-from .errors import *
+import zmq
+import zmq.auth
+import zmq.asyncio
+
+from .errors import QuikLuaException, QuikLuaConnectionException
 
 
 class ZMQSocketPoolAsync:
-    def __init__(self, rpc_host, socket_timeout=100, n_sockets=5, n_retries=2):
+    def __init__(
+            self,
+            rpc_host: str,
+            socket_timeout: int = 100,
+            n_sockets: int = 5,
+            n_retries: int = 2,
+            server_key: Optional[bytes] = None,
+            clients_keys: Optional[Tuple[bytes, bytes]] = None,
+    ) -> None:
         self.zmq_context = zmq.Context.instance()
         self.thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=n_sockets)
         self.socket_timeout = socket_timeout
         self.n_sockets = n_sockets
-        self._socket_cache = [None for i in range(n_sockets)]
-        self._sockets_in_use = [None for i in range(n_sockets)]
+        self._socket_cache: List[Union[zmq.Socket, None]] = [None for _ in range(n_sockets)]
+        self._sockets_in_use: List[Union[zmq.Socket, None]] = [None for _ in range(n_sockets)]
         self._socket_retries = n_retries
         self._lock = asyncio.Semaphore(self.n_sockets)
         self.rpc_host = rpc_host
         self._loop = asyncio.get_running_loop()
+        self._stats_rpc_errors: int = 0
+        self._stats_socket_errors: int = 0
+        self._stats_rpc_calls: defaultdict = defaultdict(int)
+        self._stats_rpc_total_time: float = 0
+        self._stats_rpc_total_count: int = 0
+        self.server_key = server_key
+        self.client_keys = clients_keys
+
+    def stats(self) -> Dict[str, Any]:
+        rpc_avg_roundtrip: Union[int, float] = -1
+        if self._stats_rpc_total_count != 0:
+            rpc_avg_roundtrip = self._stats_rpc_total_time / self._stats_rpc_total_count
+        return {
+            'rpc_call_count': self._stats_rpc_total_count,
+            'rpc_avg_roundtrip': rpc_avg_roundtrip,
+            'rpc_call_functions': dict(self._stats_rpc_calls),
+            'rpc_error_count': self._stats_rpc_errors,
+            'socket_error_count': self._stats_socket_errors,
+        }
+
+    def stats_reset(self) -> None:
         self._stats_rpc_errors = 0
         self._stats_socket_errors = 0
         self._stats_rpc_calls = defaultdict(int)
-        self._stats_rpc_total_time = 0.0
-        self._stats_rpc_total_count = 0.0
+        self._stats_rpc_total_time = 0
+        self._stats_rpc_total_count = 0
 
-    def stats(self):
-        return dict(
-            rpc_call_count = self._stats_rpc_total_count,
-            rpc_avg_roundtrip=-1 if self._stats_rpc_total_count == 0 else self._stats_rpc_total_time / self._stats_rpc_total_count,
-            rpc_call_functions= dict(self._stats_rpc_calls),
-            rpc_error_count = self._stats_rpc_errors,
-            socket_error_count = self._stats_socket_errors,
-            )
-
-    def stats_reset(self):
-        self._stats_rpc_errors = 0
-        self._stats_socket_errors = 0
-        self._stats_rpc_calls = defaultdict(int)
-        self._stats_rpc_total_time = 0.0
-        self._stats_rpc_total_count = 0.0
-
-
-    def _acquire_socket(self):
+    def _acquire_socket(self) -> Tuple[Any, Any]:
         for i in range(self.n_sockets):
             if self._sockets_in_use[i] is None:
                 if self._socket_cache[i] is None:
                     self._init_socket(i)
                 self._sockets_in_use[i] = self._socket_cache[i]
                 return self._socket_cache[i], i
-        raise RuntimeError(f'Socket number overflow, more requests than capacity')
+        raise RuntimeError('Socket number overflow, more requests than capacity')
 
-    def _release_socket(self, idx):
+    def _release_socket(self, idx: int) -> None:
         self._sockets_in_use[idx] = None
 
-    def _init_socket(self, idx):
+    def _init_socket(self, idx: int) -> zmq.Socket:
         _socket = self.zmq_context.socket(zmq.REQ)
+        if self.server_key and self.client_keys:
+            _socket.setsockopt(zmq.CURVE_PUBLICKEY, self.client_keys[0])
+            _socket.setsockopt(zmq.CURVE_SECRETKEY, self.client_keys[1])
+            _socket.setsockopt(zmq.CURVE_SERVERKEY, self.server_key)
         _socket.connect(self.rpc_host)
         self._socket_cache[idx] = _socket
         return _socket
 
-    def _close_socket(self, idx):
+    def _close_socket(self, idx: int) -> None:
         socket = self._socket_cache[idx]
-        socket.setsockopt(zmq.LINGER, 0)
-        socket.close()
+        if socket:
+            socket.setsockopt(zmq.LINGER, 0)
+            socket.close()
         self._socket_cache[idx] = None
 
-    def send_receive(self, socket, req):
+    def send_receive(self, socket: zmq.Socket, req: Any) -> Tuple[bool, Any]:
         time_start = time.time()
 
-        _send_result = socket.send_json(req)
+        socket.send_json(req)
 
         if ((socket.poll(self.socket_timeout)) & zmq.POLLIN) != 0:
             response_bytes = socket.recv(0)
-            # response = json.loads(response_bytes.decode('cp1251'))
             try:
                 response = json.loads(response_bytes.decode('utf-8'))
             except UnicodeDecodeError:
@@ -88,13 +106,11 @@ class ZMQSocketPoolAsync:
 
             if 'result' in response and not response['result'].get('is_error'):
                 return True, response['result']
-            else:
-                self._stats_rpc_errors += 1
-                raise QuikLuaException(f"{req} error: {response.get('error', response)}")
-        else:
-            return False, None
+            self._stats_rpc_errors += 1
+            raise QuikLuaException(f"{req} error: {response.get('error', response)}")
+        return False, None
 
-    async def rpc_call(self, rpc_func, **rpc_args):
+    async def rpc_call(self, rpc_func: str, **rpc_args: Any) -> Any:
         """
         Utility shortcut function for sending requests to RPC sockets and parsing response
         """
@@ -110,13 +126,14 @@ class ZMQSocketPoolAsync:
                     req = {'method': rpc_func}
                     if rpc_args:
                         # Pass optional arguments
-                        req['args'] = rpc_args
-                    
+                        req['args'] = rpc_args  # type: ignore
+
                     self._stats_rpc_calls[rpc_func] += 1
 
                     try:
                         # Using thread pool is about 3x faster than use `await zmq.asyncio.Sockets`
-                        is_success, result = await self._loop.run_in_executor(self.thread_pool, self.send_receive, socket, req)
+                        is_success, result = await self._loop.run_in_executor(self.thread_pool, self.send_receive,
+                                                                              socket, req)
                     except zmq.ZMQError:
                         # Retry again
                         is_success, result = False, None
@@ -131,13 +148,13 @@ class ZMQSocketPoolAsync:
                     self._close_socket(idx)
 
                     if retries_left <= 0:
-                        raise QuikLuaConnectionException(f"Server seems to be offline, abandoning")
+                        raise QuikLuaConnectionException("Server seems to be offline, abandoning")
 
                     socket = self._init_socket(idx)
             finally:
                 self._release_socket(idx)
 
-    def close(self):
+    def close(self) -> None:
         for i, socket in enumerate(self._socket_cache):
             if socket:
                 self._close_socket(i)
