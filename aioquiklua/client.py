@@ -538,7 +538,11 @@ class QuikLuaClientBase:
             for key, cache in all_cache:
                 if cache.ds_uuid and self.verbosity > 1:
                     self.log.debug(f'datasource.Close: {key} {cache.ds_uuid}')
-                await self.rpc_call("datasource.Close", datasource_uuid=cache.ds_uuid)
+                try:
+                    await self.rpc_call("datasource.Close", datasource_uuid=cache.ds_uuid)
+                except Exception:
+                    if cache.ds_uuid and self.verbosity > 1:
+                        self.log.error(f'datasource.Close: {key} {cache.ds_uuid}')
 
         if self._params_cache:
             if self.verbosity > 0:
